@@ -1,0 +1,24 @@
+{
+  "name": "ac_evo_modding",
+  "version": "1.0.0",
+  "description": "Assetto Corsa EVO modding",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Seigneur-Machiavel/AC_EVO_Modding.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Seigneur-Machiavel/AC_EVO_Modding/issues"
+  },
+  "homepage": "https://github.com/Seigneur-Machiavel/AC_EVO_Modding#readme",
+  "dependencies": {
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
+  }
+}
