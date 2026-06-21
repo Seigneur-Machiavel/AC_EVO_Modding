@@ -1,8 +1,9 @@
 {
   "name": "ac_evo_modding",
+  "type": "module",
   "version": "1.0.0",
   "description": "Assetto Corsa EVO modding",
-  "main": "index.js",
+  "main": "main.mjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -18,7 +19,9 @@
   },
   "homepage": "https://github.com/Seigneur-Machiavel/AC_EVO_Modding#readme",
   "dependencies": {
+    "adm-zip": "^0.5.17",
     "fs": "^0.0.1-security",
-    "path": "^0.12.7"
+    "path": "^0.12.7",
+    "ws": "^8.21.0"
   }
 }

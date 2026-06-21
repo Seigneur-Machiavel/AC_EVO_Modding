@@ -7,7 +7,7 @@
 		{
 			"type": "node",
 			"request": "launch",
-			"name": "id_patcher",
+			"name": "main",
 			"skipFiles": [
 				"<node_internals>/**"
 			],

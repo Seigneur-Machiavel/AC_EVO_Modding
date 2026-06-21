@@ -1,0 +1,17 @@
+node_modules
+package-lock.json
+src/scanner.mjs
+AC_EVO_Modding.zip
+transfer_test_notes.txt
+
+videos
+neutralino
+build/launcher-config.json
+build_release.mjs
+
+user_preferences.json
+user_swaps.json
+cars_saves
+outputs
+inputs
+logs

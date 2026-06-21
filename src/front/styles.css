@@ -1,0 +1,309 @@
+:root {
+	--pink: #ff3d9a;
+	--pink-dark: #d6207a;
+	--green: #2bd97c;
+	--ink: #221a24;
+	--paper: #fff8fb;
+	--card: #ffffff;
+	--line: #f0d9e8;
+	--muted: #8a7a87;
+	--radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--paper);
+	color: var(--ink);
+	font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+h1, h2, h3 { font-family: Georgia, 'Times New Roman', serif; margin: 0; }
+
+header {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	padding: 1.2rem 1.6rem;
+	border-bottom: 3px solid var(--pink);
+	background: var(--card);
+}
+
+header h1 {
+	font-size: 1.5rem;
+	color: var(--pink-dark);
+}
+
+header .beak { font-size: 1.6rem; }
+
+main {
+	max-width: 880px;
+	margin: 0 auto;
+	padding: 1.6rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.4rem;
+}
+
+.card {
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	padding: 1.2rem 1.4rem;
+}
+
+.card h2 {
+	font-size: 1.05rem;
+	color: var(--pink-dark);
+	margin-bottom: 0.7rem;
+}
+
+/* path setup */
+.path-row { display: flex; gap: 0.5rem; }
+
+input[type="text"] {
+	flex: 1;
+	padding: 0.6rem 0.7rem;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	font-size: 0.9rem;
+	background: var(--paper);
+	color: var(--ink);
+}
+
+input[type="text"]:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+
+.hint {
+	font-size: 0.78rem;
+	color: var(--muted);
+	margin-top: 0.4rem;
+}
+
+button {
+	cursor: pointer;
+	border: none;
+	border-radius: 8px;
+	padding: 0.6rem 1.1rem;
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+
+.btn-pink { background: var(--pink); color: white; }
+.btn-pink:hover { background: var(--pink-dark); }
+
+.btn-green { background: var(--green); color: var(--ink); }
+.btn-green:hover { filter: brightness(0.93); }
+
+.btn-ghost {
+	background: transparent;
+	color: var(--pink-dark);
+	border: 1px solid var(--pink);
+}
+.btn-ghost:hover { background: #fff0f7; }
+
+/* notifications */
+#notifs {
+	position: fixed;
+	top: 1rem;
+	right: 1rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	z-index: 50;
+}
+
+.notif {
+	min-width: 220px;
+	max-width: 320px;
+	padding: 0.7rem 1rem;
+	border-radius: 10px;
+	font-size: 0.85rem;
+	color: white;
+	box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+	animation: slide-in 0.25s ease-out;
+}
+
+.notif.ok { background: var(--green); color: var(--ink); }
+.notif.error { background: #e6396f; }
+.notif.info { background: #6a5acd; }
+
+@keyframes slide-in {
+	from { transform: translateX(20px); opacity: 0; }
+	to { transform: translateX(0); opacity: 1; }
+}
+
+/* car list */
+#car-count {
+	font-size: 0.8rem;
+	color: var(--muted);
+	margin-bottom: 0.6rem;
+}
+
+#car-search {
+	width: 100%;
+	margin-bottom: 0.8rem;
+}
+
+#car-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	max-height: 78vh;
+	overflow-y: auto;
+	padding-right: 0.3rem; /* avoid scrollbar overlapping the row border */
+}
+
+.car-row {
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	overflow: hidden;
+	flex-shrink: 0; /* prevent flex from squashing rows when many are listed */
+}
+
+.car-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+	padding: 0.8rem 0.9rem;
+	min-height: 2.6rem;
+	cursor: pointer;
+	background: var(--paper);
+}
+
+.car-head:hover { background: #fff0f7; }
+
+.car-name { font-weight: 600; }
+
+.mech-tags { display: flex; gap: 0.3rem; flex-wrap: wrap; justify-content: flex-end; }
+
+.mech-tag {
+	font-size: 0.72rem;
+	padding: 0.15rem 0.5rem;
+	border-radius: 999px;
+	background: #ffe1f0;
+	color: var(--pink-dark);
+	white-space: nowrap;
+}
+
+.mech-tag.none { background: transparent; color: var(--muted); font-style: italic; }
+
+/* swap panel, pushes content down inside the row */
+.swap-panel {
+	border-top: 1px dashed var(--line);
+	padding: 0.9rem;
+	background: #fffafd;
+}
+
+.mech-select {
+	display: flex;
+	gap: 0.4rem;
+	margin-bottom: 0.8rem;
+	flex-wrap: wrap;
+}
+
+.mech-btn {
+	background: white;
+	border: 1px solid var(--line);
+	color: var(--ink);
+	font-weight: 500;
+	padding: 0.35rem 0.8rem;
+}
+
+.mech-btn.active { background: var(--pink); color: white; border-color: var(--pink); }
+
+/* car setup */
+.realistic-toggle {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: 0.85rem;
+	color: var(--muted);
+	margin-bottom: 0.6rem;
+}
+
+.specs-list { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.4rem; }
+
+.spec-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr auto;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.spec-label { font-size: 0.85rem; color: var(--ink); }
+
+.spec-input {
+	padding: 0.4rem 0.6rem;
+	font-size: 0.85rem;
+}
+
+.spec-input.pending { border-color: var(--green); color: var(--green); font-weight: 600; }
+
+.spec-row .btn-ghost { padding: 0.4rem 0.8rem; font-size: 0.8rem; }
+
+.specs-reset-all { align-self: flex-end; }
+
+.part-list { display: flex; flex-direction: column; gap: 0.4rem; }
+
+.part-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.5rem 0.7rem;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: white;
+	cursor: pointer;
+	font-size: 0.85rem;
+}
+
+.part-row:hover { border-color: var(--pink); }
+
+.part-key { font-weight: 600; color: var(--pink-dark); }
+
+.part-source { color: var(--muted); font-style: italic; }
+
+.part-source.applied { color: var(--pink-dark); font-weight: 600; font-style: normal; }
+
+.part-source.pending { color: var(--green); font-weight: 600; font-style: normal; }
+
+.part-picker {
+	margin-top: 0.5rem;
+	padding: 0.7rem;
+	border: 1px solid var(--green);
+	border-radius: 8px;
+	background: #f3fff8;
+}
+
+.picker-list {
+	max-height: 180px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+	margin-top: 0.5rem;
+}
+
+.picker-item {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0.4rem 0.6rem;
+	border-radius: 6px;
+	font-size: 0.82rem;
+	background: white;
+	border: 1px solid var(--line);
+}
+
+.picker-item button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+
+.swap-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 0.5rem;
+	margin-top: 1rem;
+}
+
+.empty { color: var(--muted); font-size: 0.85rem; padding: 0.5rem; }

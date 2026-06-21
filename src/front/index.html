@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>#AC_EVO - Pink_Modding</title>
+	<link rel="stylesheet" href="styles.css">
+	<script type="module" src="script.mjs"></script>
+</head>
+
+<body>
+
+	<header>
+		<span class="beak">🦜</span>
+		<h1>#AC_EVO - Pink_Modding</h1>
+	</header>
+
+	<div id="notifs"></div>
+
+	<main>
+
+		<section class="card">
+			<h2>Mods folder</h2>
+			<div class="path-row">
+				<input type="text" id="path-input" placeholder="C:\Users\Pink Parrot\Saved Games\ACE\mods">
+				<button class="btn-pink" id="path-save">Set folder</button>
+			</div>
+			<p class="hint">Example: <code>C:\Users\Pink Parrot\Saved Games\ACE\mods</code> — leave empty to keep using
+				the project's "outputs" folder.</p>
+		</section>
+
+		<section class="card">
+			<h2>Cars</h2>
+			<input type="text" id="car-search" placeholder="Search a car...">
+			<p id="car-count" class="hint"></p>
+			<div id="car-list"></div>
+		</section>
+
+	</main>
+
+</body>
+
+</html>

@@ -1,0 +1,48 @@
+{
+ "audioEvents": [
+  {
+   "type": "EngineInt",
+   "debug": false,
+   "transform": {
+    "position": {
+     "x": 0,
+     "y": 0,
+     "z": 0
+    }
+   }
+  },
+  {
+   "type": "EngineExt",
+   "debug": false,
+   "transform": {
+    "position": {
+     "x": 0,
+     "y": 0,
+     "z": 0
+    }
+   }
+  },
+  {
+   "type": "WindEffect",
+   "debug": false,
+   "transform": {
+    "position": {
+     "x": 0,
+     "y": 0,
+     "z": 0
+    }
+   }
+  },
+  {
+   "type": "Bodywork",
+   "debug": false,
+   "transform": {
+    "position": {
+     "x": 0,
+     "y": 0,
+     "z": 0
+    }
+   }
+  }
+ ]
+}
