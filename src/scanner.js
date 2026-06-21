@@ -142,26 +142,19 @@ class DeepCloner {
 			lastField = row.field;
 		}
 		
-		/*for (const targetPath of patches) {
-			const res = setValue(decoded.fields, targetPath, 'varint', 1);
-			console.log(`${targetPath} should be modifiable! ${res.ok ? 'ok' : res.error}`);
-		}*/
 		for (const targetPath of patches) {
-			//const parentMessage = this.#getParentMessage(decoded.fields, targetPath.slice(0, -1));
 			let current = decoded.fields;
 			for (const index of targetPath.slice(0, -1)) current = current[index].message; // descend through nested submessages
 			
-			//const res = appendVarint(current, 3, 1);
-			const res = appendVarint(current, 4, 1); // field 4, not 3
-			console.log(`${targetPath} should be modifiable! ${res.ok ? 'ok' : res.error}`);
+			const res = appendVarint(current, 4, 1);
+			//console.log(`${targetPath} should be modifiable! ${res.ok ? 'ok' : res.error}`);
 		}
 
-		const encoded = encode(decoded.fields);
-		for (const row of toRows(decode(encoded).fields)) {
-			//if (row.kind !== 'varint' || row.path[row.path.length -1] !== 3) continue;
+		const encoded = encode(decoded.fields); 
+		/*for (const row of toRows(decode(encoded).fields)) // CONTROL
 			if (row.field !== 4 || row.kind !== 'varint') continue;
 			this.#logRowDataInfo(`>>> BOOL`, [row]);
-		}
+		}*/
 
 		FileSystem.createDirIfNot(dest);
 		FileSystem.writeFileSync(path.join(dest, f), encoded);
