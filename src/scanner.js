@@ -3,7 +3,7 @@ import path from "path";
 import { MainPaths } from './helpers.mjs';
 import { ModParts, ModData } from './classes.mjs';
 import { Logger, FileSystem } from './helpers.mjs';
-import { decode, encode, setValue, toRows } from "./protobuf.js";
+import { decode, encode, setValue, toRows, appendVarint } from "./protobuf.js";
 
 const MAIN_PATHS = new MainPaths();
 const CARS_DIR = 'D:\\_Projects\\ACEvo.Package\\content.extracted\\content\\cars';
@@ -111,7 +111,7 @@ class DeepCloner {
 						this.#logRowDataInfo(endFile, [row]);
 
 					if (row.kind === 'varint')
-						this.#logRowDataInfo(`${endFile} BOOL`, [row]);
+						this.#logRowDataInfo(`${endFile} BOOL ${row.label}`, [row]);
 				}
 
 				if (valTriggers.includes(row.value)) // Use carName trigger to avoid log spam.
@@ -122,14 +122,47 @@ class DeepCloner {
 	#patchAndCopyCarSetupLimits(p = 'C:\...', f = 'toto.carsetuplimits', dest = 'C:\...') {
 		const carcontentFile = FileSystem.readFileSync(path.join(p, f));
 		const decoded = decode(carcontentFile);
-		const toto = { step: null, min: null, max: null, isModifiable: null };
-		//let step, min, max, isModifiable;
-		/*for (const row of toRows(decoded.fields)) {
-			if (row.path.toString().endsWith())
-			//if (row.label === '4') setValue(decoded.fields, row.path, row.kind, 'toto');
+		const patches = [];
+		let data_batch = { step: 0, min: 0, max: 0 };
+		let lastPath
+		let lastField = 1;
+		for (const row of toRows(decoded.fields)) {
+			if (lastField < 4 && data_batch.step
+				&& data_batch.max !== data_batch.min) // valid
+				patches.push(lastPath);
+
+			if (lastField <= row.field) {
+				lastPath = row.path;
+				data_batch = { step: 0, min: 0, max: 0 }; // reset
+			}
+
+			if (row.field === 1) data_batch.step = Number(row.value);
+			if (row.field === 2) data_batch.min  = Number(row.value);
+			if (row.field === 3) data_batch.max  = Number(row.value);
+			lastField = row.field;
+		}
+		
+		/*for (const targetPath of patches) {
+			const res = setValue(decoded.fields, targetPath, 'varint', 1);
+			console.log(`${targetPath} should be modifiable! ${res.ok ? 'ok' : res.error}`);
 		}*/
+		for (const targetPath of patches) {
+			//const parentMessage = this.#getParentMessage(decoded.fields, targetPath.slice(0, -1));
+			let current = decoded.fields;
+			for (const index of targetPath.slice(0, -1)) current = current[index].message; // descend through nested submessages
+			
+			//const res = appendVarint(current, 3, 1);
+			const res = appendVarint(current, 4, 1); // field 4, not 3
+			console.log(`${targetPath} should be modifiable! ${res.ok ? 'ok' : res.error}`);
+		}
 
 		const encoded = encode(decoded.fields);
+		for (const row of toRows(decode(encoded).fields)) {
+			//if (row.kind !== 'varint' || row.path[row.path.length -1] !== 3) continue;
+			if (row.field !== 4 || row.kind !== 'varint') continue;
+			this.#logRowDataInfo(`>>> BOOL`, [row]);
+		}
+
 		FileSystem.createDirIfNot(dest);
 		FileSystem.writeFileSync(path.join(dest, f), encoded);
 	}
