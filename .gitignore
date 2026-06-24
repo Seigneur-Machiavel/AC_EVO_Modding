@@ -10,6 +10,7 @@ build/launcher-config.json
 build_release.mjs
 
 user_preferences.json
+_user_swaps.json
 user_swaps.json
 cars_saves
 outputs

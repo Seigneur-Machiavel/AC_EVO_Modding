@@ -3,16 +3,19 @@ import fs from 'fs';
 import path from "path";
 import http from 'http';
 import { WebSocketServer } from 'ws';
-import { ModSwap, ModParts, ModData } from './src/classes.mjs';
 import { CarCreator, Patch_Info } from "./src/car-creator.mjs";
 import { MainPaths, FileSystem, Logger, MIME_TYPES } from './src/helpers.mjs';
+import { ModSwap, ModParts, ModData, ModSwapsLib, TyresLib } from './src/classes.mjs';
 
-process.on("uncaughtException", () => logger.save());
+process.on("exit", () => logger.save());
 
 /**
- * @typedef {import('./src/classes.mjs').ModPartsLib} ModPartsLib
- * @typedef {import('./src/classes.mjs').ModSetupsLib} ModSetupsLib
- * @typedef {import('./src/classes.mjs').ModSwapsLib} ModSwapsLib
+ * @typedef {import('./src/classes.mjs').SetOfModParts} SetOfModParts
+ * @typedef {import('./src/classes.mjs').SetOfModSetups} SetOfModSetups
+ * @typedef {import('./src/classes.mjs').SetOfMechTyres} SetOfMechTyres
+ * 
+ * @typedef {import('./src/classes.mjs').SetOfTyres} SetOfTyres
+ * @typedef {import('./src/classes.mjs').RawSwaps} RawSwaps
  * 
  * @typedef {Object} Message 
  * @property {string} Message.type
@@ -28,35 +31,29 @@ process.on("uncaughtException", () => logger.save());
 const patch_infos = {};
 const logger = new Logger();
 const PORT = 4639;
-/** @type {any} */			const USER_PREFERENCES = {};
-/** @type {ModPartsLib} */ 	const MECHS = {};
-/** @type {ModSetupsLib} */ const SETUPS = {};
-/** @type {ModSwapsLib} */ 	const SWAPS = {};
+/** @type {any} */				const USER_PREFERENCES = {};
+/** @type {SetOfMechTyres} */ 	let MECHS_TYRES = {};
+/** @type {SetOfModSetups} */ 	const SETUPS = {};
+/** @type {SetOfModParts} */ 	const MECHS = {};
+/** @type {SetOfTyres} */ 		let TYRES = {};
+/** @type {TyresLib} */ 		let TYRES_LIB;
+/** @type {ModSwapsLib} */ 	let SWAPS = new ModSwapsLib();
 let MAIN_PATHS = new MainPaths();
 
 // NOTES FOR DEV
 // In .actor
-// Driving side : LHS | RHS | Centre
 // Driver model type : Street | Racing
 // ks_mini_jcs_1990_mod_mech_1 | ks_porsche_992_gt3_rs_mod_mech_1 | ks_toyota_supra_mkiv_mod_mech_1
 
 /* WORKING
-'event:/evo_cars/ks_mini_jcs_1990/': 'event:/evo_cars/ks_chevrolet_camaro_zl1/',
-'content\\sfx\\ks_mini_jcs_1990.bank': 'content\\sfx\\ks_chevrolet_camaro_zl1.bank'
 'road_165_60_12.tyre':		{ newValue: 'supercar_165_60_12.tyre', oldValue: 'road_165_60_12.tyre' }
+ */
 
-'ks_mini_modded_front.coilover': { newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded_rear.coilover': { newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded_front.suspension': { newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded_rear.suspension': { newValue: 'ks_toyota_supra_mkiv' },
+function init() { // @ts-ignore
+	MECHS_TYRES = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'mod_mechs_tyres.json'))); // @ts-ignore
+	TYRES = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'tyres.json')));
+	TYRES_LIB = new TyresLib(TYRES);
 
-'ks_mini_modded.drivetrain': { newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded.gearbox': 	{ newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded.clutch':	{ newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded.carengine':	{ newValue: 'ks_toyota_supra_mkiv' },
-'ks_mini_modded.brakesystem': { newValue: 'ks_toyota_supra_mkiv' }, */
-
-function init() {
 	// LOAD USER PREFERENCES
 	try {
 		/** @type {any} */ // @ts-ignore
@@ -70,7 +67,7 @@ function init() {
 	
 	// LOAD MECHS
 	try {
-		/** key: car_id, key: mech, value: ModParts,  @type {ModPartsLib} */ // @ts-ignore
+		/** key: car_id, key: mech, value: ModParts,  @type {SetOfModParts} */ // @ts-ignore
 		const RAW_MECHS = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'mod_mechs.json')));
 		let total_mechs_count = 0;
 		for (const car_id in RAW_MECHS) {
@@ -80,9 +77,9 @@ function init() {
 		} logger.log(`${total_mechs_count} MECHS LOADED!`);
 	} catch (error) { throw new Error('NO MECHS TO LOAD!') };
 
-	// LAOD SATUPS
+	// LAOD SETUPS
 	try {
-		/** key: car_id, key: mech, value: ModParts,  @type {ModSetupsLib} */ // @ts-ignore
+		/** key: car_id, key: mech, value: ModParts,  @type {SetOfModSetups} */ // @ts-ignore
 		const RAW_SETUPS = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'mod_setups.json')));
 		let total_setups_count = 0;
 		for (const car_id in RAW_SETUPS) {
@@ -94,14 +91,11 @@ function init() {
 	
 	// LOAD SWAPS
 	try {
-		/** key: car_id, key: mech, value: ModParts,  @type {ModSwapsLib} */ // @ts-ignore
+		/** key: car_id, key: mech, value: ModParts,  @type {RawSwaps} */ // @ts-ignore
 		const RAW_USER_SWAPS = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'user_swaps.json')));
-		let total_swaps_count = 0;
-		for (const car_id in RAW_USER_SWAPS) {
-			if (!SWAPS[car_id]) SWAPS[car_id] = {};
-			for (const mech in RAW_USER_SWAPS[car_id])
-				{ SWAPS[car_id][mech] = ModSwap.from(RAW_USER_SWAPS[car_id][mech]); total_swaps_count++ };
-		} logger.log(`${total_swaps_count} SWAPS LOADED!`);
+		const swapsLib = new ModSwapsLib(RAW_USER_SWAPS);
+		SWAPS = swapsLib;
+		logger.log(`${SWAPS.total_swaps_count} SWAPS LOADED!`);
 	} catch (error) { logger.log('NO SWAPS TO LOAD!') };
 
 	// CLONE "pink_mods" DIR TO "mods\uiresources\branding\oem"
@@ -126,8 +120,9 @@ function clone_all_missing_cars() {
 function clone_car(m_id = 'ks_toyota_supra_mkiv_mod_mech_1', swap) {
 	const o_id = m_id.split('_mod_')[0]; // original car id
 	const mech = m_id.split('_mod_')[1];
-	const s = swap || SWAPS[o_id]?.[mech];
-	const carCreator = new CarCreator(MAIN_PATHS, o_id, m_id, mech, MECHS, s, logger);
+	const s = swap || SWAPS.get(o_id, mech);
+	const carCreator = new CarCreator(MAIN_PATHS, o_id, m_id, mech, TYRES_LIB, MECHS_TYRES, MECHS, s, logger);
+	carCreator.prepareTyresCorrections();
 	carCreator.prepareSoundCorrections();
 	carCreator.prepareCorrections(path.join(MAIN_PATHS.TEMPLATES, m_id));
 	carCreator.processDir(path.join(MAIN_PATHS.TEMPLATES, m_id));
@@ -169,25 +164,26 @@ function handleModsPath(p = 'C:\\') {
 function handleSwapUpdate(payload) {
 	const { car_id, mech, mod_swap } = payload;
 	try { // CLONE CAR & SAVE SWAPS
-		const swap = ModSwap.from(mod_swap);
+		const swap = new ModSwap(mod_swap);
 		clone_car(`${car_id}_mod_${mech}`, swap);
 
-		if (!SWAPS[car_id]) SWAPS[car_id] = {};
-		SWAPS[car_id][mech] = swap;
+		SWAPS.set(car_id, mech, swap);
 		FileSystem.writeFileSync(path.join(MAIN_PATHS.ROOT, 'user_swaps.json'), JSON.stringify(SWAPS));
 		return { type: 'swap_result', reason: 'na', ok: true, car_id, mech };
 	} catch (/** @type {any} */ error) {
+		console.error(error.stack);
 		return { type: 'swap_result', reason: error.message, ok: false, car_id, mech };
 	}
 }
 
 if (MAIN_PATHS.ACE_MODS) init(); // INIT FIRST > LOADING PREFERENCES, MECHS, SWAPS.
 const wss = new WebSocketServer({ server });
+const initMessage = () => { return { type: 'init', ace_mods_path: MAIN_PATHS.ACE_MODS, MECHS, SETUPS, SWAPS, TYRES, MECHS_TYRES } }
 wss.on('connection', (socket) => {
 	console.log('[ws] client connected');
 
 	let hasInit = init();
-	if (hasInit) socket.send(JSON.stringify({ type: 'init', ace_mods_path: MAIN_PATHS.ACE_MODS, mechs: MECHS, setups: SETUPS, swaps: SWAPS }));
+	if (hasInit) socket.send(JSON.stringify(initMessage()));
 
 	socket.on('message', (/** @type {any} */ data) => {
 		/** @type {Message} */
@@ -197,7 +193,7 @@ wss.on('connection', (socket) => {
 		if (type === 'set_ace_mods_path') {// @ts-ignore
 			socket.send(JSON.stringify(handleModsPath(payload.path)));
 			hasInit = init(); // LOAD & INIT AGAIN
-			socket.send(JSON.stringify({ type: 'init', ace_mods_path: MAIN_PATHS.ACE_MODS, mechs: MECHS, setups: SETUPS, swaps: SWAPS }));
+			socket.send(JSON.stringify(initMessage()));
 		}
 		
 		if (type === 'update_swap_and_build') // @ts-ignore

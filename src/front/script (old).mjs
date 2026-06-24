@@ -1,3 +1,4 @@
+
 // @ts-check
 
 import { PART_KEYS } from '../parts-table.mjs';
@@ -19,28 +20,25 @@ const store = {
 	setups: {},
 };
 
+/** In-progress edits before "swap it baby!" */
 let DRAFTS = new ModSwapsLib();
 /** @type {TyresLib} */
 let TYRES;
 /** @type {SetOfMechTyres} */
 let MECHS_TYRES;
-let SWAPS = new ModSwapsLib(); // @ts-ignore
+/** Current SWAPS from server.*/
+let SWAPS = new ModSwapsLib(); 		// @ts-ignore
 
-window.store = store; // @ts-ignore
+window.store = store; 				// @ts-ignore
 window.SWAPS = SWAPS;
 
 /** car_id keeps its "ks_" prefix everywhere internally; only stripped for display. */
 const hideKsPrefix = (carId = 'toto') => carId.startsWith('ks_') ? carId.slice(3) : carId;
-
 let ui = {
-	openCar:       /** @type {string | null} */ (null),
-	openMech:      /** @type {string | null} */ (null),
-	openPicker:    /** @type {string | null} */ (null), // part key
-	openTyrePicker:/** @type {string | null} */ (null), // tyre mod key
-	tyreSearch: '',
-	tyreCat:       /** @type {string | null} */ (null),
+	openCar: null, // car_id currently expanded
+	openMech: null, // selected mech for the open car
+	openPicker: null, // part key currently showing the picker dropdown
 };
-
 function notify(message = 'toto', type = 'info') {
 	const el = document.createElement('div');
 	el.className = `notif ${type}`;
@@ -60,14 +58,19 @@ socket.onmessage = (/** @type {any} */ event) => {
 
 socket.onclose = () => notify('Connection to local server lost.', 'error');
 
+/** Expected message shapes from the server:
+ * { type: 'path_result', ok: boolean, path: string, reason?: string }
+ * { type: 'swap_result', ok: boolean, car_id: string, mech: string, reason?: string } */
 function handleServerMessage(/** @type {any} */ msg) {
 	if (msg.type === 'init') {
 		store.acePath = msg.ace_mods_path || '';
 		store.mechs = msg.MECHS || {};
 		store.setups = msg.SETUPS || {};
-		TYRES = new TyresLib(msg.TYRES);
 		MECHS_TYRES = msg.MECHS_TYRES || {};
-		if (msg.SWAPS) SWAPS = new ModSwapsLib(msg.SWAPS); // @ts-ignore
+		TYRES = new TyresLib(msg.TYRES);
+		if (msg.SWAPS) SWAPS = new ModSwapsLib(msg.SWAPS);
+
+		// @ts-ignore
 		document.getElementById('path-input').value = store.acePath;
 		renderCarList();
 		return;
@@ -86,7 +89,9 @@ function handleServerMessage(/** @type {any} */ msg) {
 	}
 
 	notify(`Unknown message type: ${msg.type}`, 'error');
-} // @ts-ignore
+}
+
+// @ts-ignore
 document.getElementById('path-save').onclick = () => { // @ts-ignore
 	const value = document.getElementById('path-input').value.trim();
 	send('set_ace_mods_path', { path: value });
@@ -97,10 +102,6 @@ document.addEventListener('keydown', (e) => { // @ts-ignore
 	e.preventDefault(); // @ts-ignore
 	document.getElementById('car-search').focus();
 });
-
-
-// RENDER
-
 function renderCarList() { // @ts-ignore
 	const search = document.getElementById('car-search').value.trim().toLowerCase();
 	const listEl = document.getElementById('car-list'); // @ts-ignore
@@ -110,42 +111,34 @@ function renderCarList() { // @ts-ignore
 		.filter((id) => id.toLowerCase().includes(search))
 		.sort((a, b) => hideKsPrefix(a).localeCompare(hideKsPrefix(b))); // @ts-ignore
 	document.getElementById('car-count').textContent = `${carIds.length} car${carIds.length === 1 ? '' : 's'}`;
-
-	if (carIds.length === 0) { // @ts-ignore
-		listEl.innerHTML = '<p class="empty">No car matches your search.</p>';
-		return;
-	} // @ts-ignore
-	for (const carId of carIds) listEl.appendChild(buildCarRow(carId));
+	// @ts-ignore
+	if (carIds.length === 0) listEl.innerHTML = '<p class="empty">No car matches your search.</p>'; // @ts-ignore
+	else for (const carId of carIds) listEl.appendChild(buildCarRow(carId));
 }
-
 function buildCarRow(carId = 'toto') {
 	const row = document.createElement('div');
 	row.className = 'car-row';
 
 	const head = document.createElement('div');
 	head.className = 'car-head';
-	head.innerHTML = `<span class="car-name">${hideKsPrefix(carId)}</span><span class="mech-tags">${buildMechTagsHTML(carId)}</span>`;
+	head.innerHTML = `<span class="car-name">${hideKsPrefix(carId)}</span><span class="mech-tags">${buildMechTags(carId)}</span>`;
 	head.onclick = () => toggleCar(carId);
 	row.appendChild(head);
 
 	if (ui.openCar === carId) row.appendChild(buildSwapPanel(carId));
+
 	return row;
 }
-
-function buildMechTagsHTML(carId = 'toto') {
+function buildMechTags(carId = 'toto') {
 	const mechs = Object.keys(store.mechs[carId]);
 	if (mechs.length === 0) return '<span class="mech-tag none">no variant</span>';
 	return mechs.map((m) => `<span class="mech-tag">${m}</span>`).join('');
 }
-
 function toggleCar(carId = 'toto') {
-	ui = {
-		openCar:        ui.openCar === carId ? null : carId, // @ts-ignore
-		openMech:       ui.openCar === carId ? null : Object.keys(store.mechs[carId])[0],
-		openPicker:     null,
-		openTyrePicker: null,
-		tyreSearch:     '',
-		tyreCat:        null,
+	ui = { // @ts-ignore
+		openCar: 	ui.openCar === carId ? null : carId, // @ts-ignore
+		openMech: 	ui.openCar === carId ? null : Object.keys(store.mechs[carId])[0], // firstMech
+		openPicker: null
 	};
 	renderCarList();
 }
@@ -157,21 +150,12 @@ function buildSwapPanel(carId = 'toto') {
 	panel.appendChild(buildMechSelect(carId));
 	panel.appendChild(buildSectionTitle('CAR SPECS'));
 	panel.appendChild(buildSpecsList(carId, '.car'));
-	panel.appendChild(buildSectionTitle('TYRES'));
-	panel.appendChild(buildTyresList(carId));
 	panel.appendChild(buildSectionTitle('PARTS'));
 	panel.appendChild(buildPartList(carId));
 	panel.appendChild(buildSwapPanelButtons(carId));
+
 	return panel;
 }
-
-function buildSectionTitle(section = 'PARTS') {
-	const el = document.createElement('h2');
-	el.className = 'section-title';
-	el.textContent = section;
-	return el;
-}
-
 function buildMechSelect(carId = 'toto') {
 	const mechSelect = document.createElement('div');
 	mechSelect.className = 'mech-select';
@@ -179,12 +163,23 @@ function buildMechSelect(carId = 'toto') {
 		const btn = document.createElement('button');
 		btn.className = `mech-btn ${mech === ui.openMech ? 'active' : ''}`;
 		btn.textContent = mech; // @ts-ignore
-		btn.onclick = () => { ui.openMech = mech; ui.openPicker = null; ui.openTyrePicker = null; renderCarList(); };
+		btn.onclick = () => { ui.openMech = mech; ui.openPicker = null; renderCarList(); };
 		mechSelect.appendChild(btn);
 	}
 	return mechSelect;
 }
-
+function buildSectionTitle(section = 'PARTS') {
+	const sectionTitle = document.createElement('h2');
+	sectionTitle.textContent = section;
+	sectionTitle.style = 'text-align: center;';
+	return sectionTitle;
+}
+function buildPartList(carId = 'toto') {
+	const partList = document.createElement('div');
+	partList.className = 'part-list'; // @ts-ignore
+	for (const key of PART_KEYS) partList.appendChild(buildPartRow(carId, ui.openMech, key));
+	return partList;
+}
 function buildSwapPanelButtons(carId = 'toto') {
 	const actions = document.createElement('div');
 	actions.className = 'swap-actions';
@@ -196,62 +191,62 @@ function buildSwapPanelButtons(carId = 'toto') {
 	return actions;
 }
 
-
-// SPECS
-
+/** Resolve the current value for a data path: draft > applied swap > origin. */
 function getSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') {
 	const draft = DRAFTS.get(carId, mech)?.setup.get(fileExt, path);
 	if (draft !== undefined) return draft;
+
 	const applied = SWAPS.get(carId, mech)?.setup.get(fileExt, path);
-	if (applied !== undefined) return applied; // @ts-ignore
+	if (applied !== undefined) return applied;
+	// @ts-ignore he is here.
 	return store.setups[carId]?.[mech]?.[fileExt]?.[path];
 }
-
 function getOriginSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') { // @ts-ignore
 	return store.setups[carId]?.[mech]?.[fileExt]?.[path];
 }
-
 function isSpecDrafted(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') {
 	return DRAFTS.get(carId, mech)?.setup.get(fileExt, path);
 }
-
 function setDraftSpec(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...', /** @type {any} */ value) {
-	if (!DRAFTS.get(carId, mech)) DRAFTS.set(carId, mech);
+	if (!DRAFTS.get(carId, mech)) DRAFTS.set(carId, mech); // init new
 	DRAFTS.get(carId, mech)?.setup.set(fileExt, path, value);
 }
-
 function resetSpecToOrigin(carId = 'toto', mech = 'toto', fileExt = 'toto', path = 'toto') {
 	setDraftSpec(carId, mech, fileExt, path, getOriginSpecValue(carId, mech, fileExt, path));
 }
-
 function buildSpecsList(carId = 'toto', fileExt = 'toto') {
 	const specsList = document.createElement('div');
 	specsList.className = 'specs-list';
+
 	specsList.appendChild(buildRealisticCheckbox());
+
 	for (const path in DATA_PATH_LABEL_LINKS[fileExt]) // @ts-ignore
 		specsList.appendChild(buildSpecRow(carId, ui.openMech, fileExt, path));
+
 	specsList.appendChild(buildSpecsResetAllButton(carId, fileExt));
+
 	return specsList;
 }
-
 function buildRealisticCheckbox() {
 	const wrapper = document.createElement('label');
 	wrapper.className = 'realistic-toggle';
+
 	const checkbox = document.createElement('input');
 	checkbox.type = 'checkbox';
 	checkbox.checked = false;
 	checkbox.disabled = true; // placeholder until we have an estimation table
+
 	wrapper.appendChild(checkbox);
 	wrapper.append(' Make it realistic');
+
 	return wrapper;
 }
-
 function buildSpecRow(carId = 'toto', mech = 'toto', fileExt = 'toto', path = 'toto') {
 	const row = document.createElement('div');
-	row.className = 'spec-row'; // @ts-ignore
-	const desc = DATA_PATH_LABEL_LINKS[fileExt][path];
+	row.className = 'spec-row';
 
-	const label = document.createElement('span');
+	const label = document.createElement('span'); // @ts-ignore
+	const desc = DATA_PATH_LABEL_LINKS[fileExt][path];
 	label.className = 'spec-label'; // @ts-ignore
 	label.innerHTML = !DATA_SPECIAL_COMMENTS[desc] ? desc : `${desc} <span style="opacity: .8">(${DATA_SPECIAL_COMMENTS[desc]})<span>`;
 	row.appendChild(label);
@@ -268,204 +263,18 @@ function buildSpecRow(carId = 'toto', mech = 'toto', fileExt = 'toto', path = 't
 	defaultBtn.textContent = 'default';
 	defaultBtn.onclick = () => { resetSpecToOrigin(carId, mech, fileExt, path); renderCarList(); };
 	row.appendChild(defaultBtn);
+
 	return row;
 }
-
 function buildSpecsResetAllButton(carId = 'toto', fileExt = 'toto') {
 	const resetAllBtn = document.createElement('button');
 	resetAllBtn.className = 'btn-ghost specs-reset-all';
-	resetAllBtn.textContent = 'reset all'; // @ts-ignore
-	resetAllBtn.onclick = () => { for (const path in DATA_PATH_LABEL_LINKS[fileExt]) resetSpecToOrigin(carId, ui.openMech, fileExt, path); renderCarList(); };
+	resetAllBtn.textContent = 'reset all';
+	resetAllBtn.onclick = () => { // @ts-ignore
+		for (const path in DATA_PATH_LABEL_LINKS[fileExt]) resetSpecToOrigin(carId, ui.openMech, fileExt, path);
+		renderCarList();
+	};
 	return resetAllBtn;
-}
-
-
-// TYRES
-
-function getTyreValue(carId = 'toto', mech = 'mech_1', mod = 'Mod_1') {
-	return DRAFTS.get(carId, mech)?.tyres[mod]
-		?? SWAPS.get(carId, mech)?.tyres[mod]
-		?? MECHS_TYRES[carId]?.[mech]?.[mod];
-}
-
-function getOriginTyreValue(carId = 'toto', mech = 'mech_1', mod = 'Mod_1') {
-	return MECHS_TYRES[carId]?.[mech]?.[mod];
-}
-
-function isTyreDrafted(carId = 'toto', mech = 'mech_1', mod = 'Mod_1') {
-	return !!DRAFTS.get(carId, mech)?.tyres[mod];
-}
-
-function setDraftTyre(carId = 'toto', mech = 'mech_1', mod = 'Mod_1', /** @type {TyreSet} */ tyreSet) {
-	if (!DRAFTS.get(carId, mech)) DRAFTS.set(carId, mech); // @ts-ignore
-	DRAFTS.get(carId, mech).tyres[mod] = tyreSet; // @ts-ignore
-}
-
-function buildTyresList(carId = 'toto') {
-	const mech = ui.openMech ?? '';
-	const mods = Object.keys(MECHS_TYRES[carId]?.[mech] ?? {});
-
-	const wrapper = document.createElement('div');
-	wrapper.className = 'tyres-list';
-
-	for (const mod of mods)
-		if (mod === 'Mod_1') continue;
-		else wrapper.appendChild(buildTyreRow(carId, mech, mod));
-
-	const resetBtn = document.createElement('button');
-	resetBtn.className = 'btn-ghost tyres-reset-all';
-	resetBtn.textContent = 'reset all tyres';
-	resetBtn.onclick = () => {
-		for (const mod in MECHS_TYRES[carId]?.[mech]) setDraftTyre(carId, mech, mod, getOriginTyreValue(carId, mech, mod)); // @ts-ignore
-		renderCarList();
-	};
-	wrapper.appendChild(resetBtn);
-	return wrapper;
-}
-
-function buildTyreRow(carId = 'toto', mech = 'toto', mod = 'toto') {
-	const row = document.createElement('div');
-	row.className = 'tyre-row clickable';
-
-	const tyreSet = getTyreValue(carId, mech, mod);
-	const stateClass = isTyreDrafted(carId, mech, mod) ? 'pending' : SWAPS.get(carId, mech)?.tyres[mod] ? 'applied' : '';
-
-	row.innerHTML = `
-		<span class="tyre-mod">${mod}</span>
-		<span class="tyre-name ${stateClass}">${tyreSet?.front.tyre ?? '—'}</span>
-		<span class="tyre-cat">${tyreSet?.front.category ?? ''}</span>`;
-
-	row.onclick = (e) => {
-		e.stopPropagation();
-		ui.openTyrePicker = ui.openTyrePicker === mod ? null : mod;
-		renderCarList();
-	};
-
-	if (ui.openTyrePicker === mod) row.appendChild(buildTyrePicker(carId, mech, mod, tyreSet));
-	return row;
-}
-
-function buildTyrePicker(carId = 'toto', mech = 'toto', mod = 'toto', /** @type {TyreSet | undefined} */ current) {
-	const picker = document.createElement('div');
-	picker.className = 'tyre-picker';
-	picker.onclick = (e) => e.stopPropagation();
-
-	// Front / Rear displays with sync button
-	const axleRow = document.createElement('div');
-	axleRow.className = 'tyre-axle-row';
-
-	const frontLabel = document.createElement('span');
-	frontLabel.className = 'tyre-axle-label';
-	frontLabel.innerHTML = `<b>Front:</b> ${current?.front.tyre ?? '—'} <span class="tyre-cat">${current?.front.category ?? ''}</span>`;
-
-	const syncBtn = document.createElement('button');
-	syncBtn.className = 'btn-ghost tyre-sync-btn';
-	syncBtn.textContent = 'sync front → rear';
-	syncBtn.onclick = () => {
-		if (!current?.front) return;
-		setDraftTyre(carId, mech, mod, { front: current.front, rear: { ...current.front } });
-		renderCarList();
-	};
-
-	const rearLabel = document.createElement('span');
-	rearLabel.className = 'tyre-axle-label';
-	rearLabel.innerHTML = `<b>Rear:</b> ${current?.rear.tyre ?? '—'} <span class="tyre-cat">${current?.rear.category ?? ''}</span>`;
-
-	axleRow.appendChild(frontLabel);
-	axleRow.appendChild(syncBtn);
-	axleRow.appendChild(rearLabel);
-	picker.appendChild(axleRow);
-
-	// Search
-	const search = document.createElement('input');
-	search.type = 'text';
-	search.placeholder = 'Search a tyre...';
-	search.value = ui.tyreSearch;
-	search.oninput = () => { ui.tyreSearch = search.value; renderList(); };
-	picker.appendChild(search);
-
-	// Category filters
-	const filters = document.createElement('div');
-	filters.className = 'tyre-picker-filters';
-	for (const cat of TYRES.categories) {
-		const btn = document.createElement('button');
-		btn.className = `tyre-filter-btn ${ui.tyreCat === cat ? 'active' : ''}`;
-		btn.textContent = cat;
-		btn.onclick = () => { ui.tyreCat = ui.tyreCat === cat ? null : cat; renderList(); };
-		filters.appendChild(btn);
-	}
-	picker.appendChild(filters);
-
-	// Tyre list — two columns: Front / Rear
-	const header = document.createElement('div');
-	header.className = 'tyre-picker-header';
-	header.innerHTML = '<span>Tyre</span><span>Front</span><span>Rear</span>';
-	picker.appendChild(header);
-
-	const list = document.createElement('div');
-	list.className = 'tyre-picker-list';
-	picker.appendChild(list);
-
-	const renderList = () => {
-		list.innerHTML = '';
-		const term = ui.tyreSearch.toLowerCase();
-
-		for (const cat of TYRES.categories) {
-			if (ui.tyreCat && cat !== ui.tyreCat) continue;
-			for (const tyreName in TYRES.store[cat]) {
-				if (term && !tyreName.toLowerCase().includes(term)) continue;
-				list.appendChild(buildTyrePickerItem(carId, mech, mod, cat, tyreName, current));
-			}
-		}
-		if (!list.children.length) list.innerHTML = '<p class="empty">No tyre matches.</p>';
-	};
-	renderList();
-	return picker;
-}
-
-function buildTyrePickerItem(carId = 'toto', mech = 'toto', mod = 'toto', cat = 'toto', tyreName = 'toto', /** @type {TyreSet | undefined} */ current) {
-	const item = document.createElement('div');
-	item.className = 'tyre-picker-item';
-
-	const nameEl = document.createElement('span');
-	nameEl.textContent = tyreName;
-	item.appendChild(nameEl);
-
-	// Assign to front only
-	const frontBtn = document.createElement('button');
-	frontBtn.className = 'btn-ghost';
-	frontBtn.textContent = 'Front';
-	frontBtn.onclick = (e) => {
-		e.stopPropagation();
-		const rear = current?.rear ?? { category: cat, tyre: tyreName };
-		setDraftTyre(carId, mech, mod, { front: { category: cat, tyre: tyreName }, rear });
-		renderCarList();
-	};
-
-	// Assign to rear only
-	const rearBtn = document.createElement('button');
-	rearBtn.className = 'btn-ghost';
-	rearBtn.textContent = 'Rear';
-	rearBtn.onclick = (e) => {
-		e.stopPropagation();
-		const front = current?.front ?? { category: cat, tyre: tyreName };
-		setDraftTyre(carId, mech, mod, { front, rear: { category: cat, tyre: tyreName } });
-		renderCarList();
-	};
-
-	item.appendChild(frontBtn);
-	item.appendChild(rearBtn);
-	return item;
-}
-
-
-// PARTS
-
-function buildPartList(carId = 'toto') {
-	const partList = document.createElement('div');
-	partList.className = 'part-list'; // @ts-ignore
-	for (const key of PART_KEYS) partList.appendChild(buildPartRow(carId, ui.openMech, key));
-	return partList;
 }
 
 function buildPartRow(carId = 'toto', mech = 'toto', key = 'toto') {
@@ -474,9 +283,9 @@ function buildPartRow(carId = 'toto', mech = 'toto', key = 'toto') {
 
 	const draft = DRAFTS.get(carId, mech)?.getPart(key);
 	const applied = SWAPS.get(carId, mech)?.getPart(key);
-	const ref = draft || applied || null;
+	const ref = draft || applied ? draft || applied : null;
 
-	const sourceLabel = ref?.car_id ? `${hideKsPrefix(ref.car_id)} (${ref.mech})` : 'unchanged';
+	const sourceLabel = ref?.car_id ? `${hideKsPrefix(ref.car_id)} (${ref.mech})`: 'unchanged';
 	const sourceClass = draft ? 'pending' : applied ? 'applied' : '';
 
 	row.innerHTML = `<span class="part-key">${key}</span><span class="part-source ${sourceClass}">${sourceLabel}</span>`;
@@ -487,9 +296,9 @@ function buildPartRow(carId = 'toto', mech = 'toto', key = 'toto') {
 	};
 
 	if (ui.openPicker === key) row.appendChild(buildPicker(carId, mech, key));
+
 	return row;
 }
-
 function buildPicker(carId = 'toto', mech = 'toto', key = 'toto') {
 	const picker = document.createElement('div');
 	picker.className = 'part-picker';
@@ -507,6 +316,7 @@ function buildPicker(carId = 'toto', mech = 'toto', key = 'toto') {
 	const renderOptions = () => {
 		const term = search.value.trim().toLowerCase();
 		list.innerHTML = '';
+
 		for (const donorId of Object.keys(store.mechs).filter((id) => id.toLowerCase().includes(term)).sort((a, b) => hideKsPrefix(a).localeCompare(hideKsPrefix(b))))
 			for (const donorMech of Object.keys(store.mechs[donorId]))
 				list.appendChild(buildPickerItem(carId, mech, key, donorId, donorMech));
@@ -514,9 +324,9 @@ function buildPicker(carId = 'toto', mech = 'toto', key = 'toto') {
 
 	search.oninput = renderOptions;
 	renderOptions();
+
 	return picker;
 }
-
 function buildPickerItem(carId = 'toto', mech = 'toto', key = 'toto', donorId = 'toto', donorMech = 'toto') {
 	const item = document.createElement('div');
 	item.className = 'picker-item';
@@ -530,37 +340,39 @@ function buildPickerItem(carId = 'toto', mech = 'toto', key = 'toto', donorId = 
 	const assignPart = document.createElement('button');
 	assignPart.className = 'btn-ghost';
 	assignPart.textContent = 'assign part';
-	assignPart.onclick = () => { setDraftPart(carId, mech, key, donorId, donorMech); ui.openPicker = null; renderCarList(); };
+	assignPart.onclick = () => applyPartDraft(carId, mech, key, donorId, donorMech);
 	btnGroup.appendChild(assignPart);
 
 	const assignAll = document.createElement('button');
 	assignAll.className = 'btn-green';
 	assignAll.textContent = 'assign all parts';
 	assignAll.style.marginLeft = '0.4rem';
-	assignAll.onclick = () => {
-		for (const k of PART_KEYS) setDraftPart(carId, mech, k, donorId, donorMech);
-		ui.openPicker = null;
-		renderCarList();
-		notify(`All parts staged from ${hideKsPrefix(donorId)} (${donorMech}). Hit "swap it baby!" to confirm.`, 'info');
-	};
+	assignAll.onclick = () => applyAllPartsDraft(carId, mech, donorId, donorMech);
 	btnGroup.appendChild(assignAll);
 
 	item.appendChild(btnGroup);
 	return item;
 }
-
+function applyPartDraft(carId = 'toto', mech = 'toto', key = 'toto', donorId = 'toto', donorMech = 'toto') {
+	setDraftPart(carId, mech, key, donorId, donorMech);
+	ui.openPicker = null;
+	renderCarList();
+}
+function applyAllPartsDraft(carId = 'toto', mech = 'toto', donorId = 'toto', donorMech = 'toto') {
+	for (const key of PART_KEYS) setDraftPart(carId, mech, key, donorId, donorMech);
+	ui.openPicker = null;
+	renderCarList();
+	notify(`All parts staged from ${hideKsPrefix(donorId)} (${donorMech}). Hit "swap it baby!" to confirm.`, 'info');
+}
 function setDraftPart(carId = 'toto', mech = 'toto', key = 'toto', donorId = 'toto', donorMech = 'toto') {
 	const draft = DRAFTS.get(carId, mech) || new ModSwap();
 	draft.parts[key] = { car_id: donorId, mech: donorMech };
 	DRAFTS.set(carId, mech, draft);
 }
 
-
-// SWAP
-
 function confirmSwap(carId = 'toto', mech = 'toto') {
 	const draft = DRAFTS.get(carId, mech);
-	if (!draft) return notify('No changes staged for this mech yet.', 'error');
+	if (!draft) return notify('No part has been changed for this mech yet.', 'error');
 
 	const modSwap = buildModSwapFromDraft(carId, mech, draft);
 	send('update_swap_and_build', { car_id: carId, mech, mod_swap: modSwap });
@@ -569,30 +381,23 @@ function confirmSwap(carId = 'toto', mech = 'toto') {
 	DRAFTS.delete(carId, mech);
 	renderCarList();
 }
-
 function buildModSwapFromDraft(carId = 'toto', mech = 'toto', draft = new ModSwap()) {
+	// MERGE
 	const modSwap = new ModSwap();
 	const base = SWAPS.get(carId, mech) || new ModSwap();
-
-	// Merge setup: base first, draft overrides
 	for (const fileExt in base.setup) // @ts-ignore
 		for (const valuePath in base.setup[fileExt] || {}) {
 			const val = base.setup.get(fileExt, valuePath);
 			if (val) modSwap.setup.set(fileExt, valuePath, val);
 		}
+
 	for (const fileExt in draft.setup) // @ts-ignore
 		for (const valuePath in draft.setup[fileExt] || {}) {
 			const val = draft.setup.get(fileExt, valuePath);
 			if (val) modSwap.setup.set(fileExt, valuePath, val);
 		}
 
-	// Merge parts
 	for (const key of PART_KEYS) modSwap.parts[key] = draft.parts[key] || base.parts[key];
-	for (const key of PART_KEYS) if (!modSwap.parts[key]) delete modSwap.parts[key];
-
-	// Merge tyres: base first, draft overrides
-	for (const mod in base.tyres) modSwap.tyres[mod] = base.tyres[mod];
-	for (const mod in draft.tyres) modSwap.tyres[mod] = draft.tyres[mod];
-
+	for (const key of PART_KEYS) if (!modSwap.parts[key]) delete modSwap.parts[key]; // clear if empty
 	return modSwap;
 }

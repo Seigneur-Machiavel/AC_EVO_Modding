@@ -97,28 +97,14 @@ export const MIME_TYPES = {
 	'.ico': 'image/x-icon',
 };
 
-// USELESS
-function encodeProtoVarint(/** @type {any} */ value) {
-  let v = BigInt(value);
-  const bytes = [];
-  do {
-	let byte = Number(v & 0x7fn);
-	v >>= 7n;
-	if (v > 0n) byte |= 0x80;
-	bytes.push(byte);
-  } while (v > 0n);
-  return Buffer.from(bytes);
-}
-function protoTag(/** @type {any} */ field, /** @type {any} */ wire) {
-  return encodeProtoVarint((BigInt(field) << 3n) | BigInt(wire));
-}
-function protoString(/** @type {any} */ field, /** @type {any} */ value) {
-  const bytes = Buffer.from(String(value || ""), "utf8");
-  return Buffer.concat([protoTag(field, 2), encodeProtoVarint(bytes.length), bytes]);
-}
-function protoInt(/** @type {any} */ field, /** @type {any} */ value) {
-  return Buffer.concat([protoTag(field, 0), encodeProtoVarint(value)]);
-}
-function protoMessage(/** @type {any} */ field, /** @type {any} */ body) {
-  return Buffer.concat([protoTag(field, 2), encodeProtoVarint(body.length), body]);
+const FILE_IDENTITIES = {
+	'.car': 'CarDataCar',
+	'.carsetup': 'CarSetup',
+	'.carsetuplimits': 'CarSetupLimits',
+	'.compatibletyres': 'CompatibleTyres',
+	'.carmechanicalpreset': 'CarMechanicalPreset'
+};
+/** @returns {'CarDataCar' | 'CarSetup' | 'CarSetupLimits' | 'CompatibleTyres' | undefined} */
+export function resolveFileIdentity(f = '...cardata.car') { // @ts-ignore
+	for (const key in FILE_IDENTITIES) if (f.endsWith(key)) return FILE_IDENTITIES[key];
 }

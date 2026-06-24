@@ -307,3 +307,97 @@ button {
 }
 
 .empty { color: var(--muted); font-size: 0.85rem; padding: 0.5rem; }
+
+/* section titles */
+.section-title { text-align: center; }
+
+/* tyres */
+.tyres-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.4rem; }
+
+.tyre-row {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.5rem 0.7rem;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: white;
+	font-size: 0.85rem;
+}
+.tyre-row.clickable { cursor: pointer; }
+.tyre-row.clickable:hover { border-color: var(--pink); }
+
+.tyre-mod { font-weight: 600; color: var(--pink-dark); min-width: 80px; }
+.tyre-name { flex: 1; }
+.tyre-name.pending { color: var(--green); font-weight: 600; }
+.tyre-name.applied { color: var(--pink-dark); font-weight: 600; }
+.tyre-cat { font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: #ffe1f0; color: var(--pink-dark); white-space: nowrap; }
+
+.tyres-reset-all { align-self: flex-end; }
+
+.tyre-picker {
+	margin-top: 0.5rem;
+	padding: 0.7rem;
+	border: 1px solid var(--green);
+	border-radius: 8px;
+	background: #f3fff8;
+	display: flex;
+	flex-direction: column;
+	gap: 0.4rem;
+}
+
+.tyre-axle-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+	flex-wrap: wrap;
+	font-size: 0.82rem;
+	padding-bottom: 0.4rem;
+	border-bottom: 1px solid var(--line);
+}
+.tyre-axle-label { flex: 1; }
+.tyre-sync-btn { padding: 0.25rem 0.6rem; font-size: 0.78rem; }
+
+.tyre-picker-filters { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+.tyre-filter-btn {
+	font-size: 0.75rem;
+	padding: 0.2rem 0.6rem;
+	border-radius: 999px;
+	border: 1px solid var(--line);
+	background: white;
+	color: var(--muted);
+	font-weight: 500;
+	cursor: pointer;
+}
+.tyre-filter-btn.active { background: var(--pink); color: white; border-color: var(--pink); }
+
+.tyre-picker-header {
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	gap: 0.5rem;
+	font-size: 0.75rem;
+	color: var(--muted);
+	padding: 0 0.2rem;
+}
+
+.tyre-picker-list {
+	max-height: 180px;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.tyre-picker-item {
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.4rem 0.6rem;
+	border-radius: 6px;
+	font-size: 0.82rem;
+	background: white;
+	border: 1px solid var(--line);
+}
+.tyre-picker-item button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }

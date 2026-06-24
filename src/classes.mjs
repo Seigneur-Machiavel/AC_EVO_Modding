@@ -1,14 +1,5 @@
 // @ts-check
 
-/* RIEN A VOIR
-hypercar_245_40_15.tyre
-content\cars\common_phsx\tyres\hypercar\hypercar_245_40_15.tyre
-	ks_audi_rs_6_avant
-content\cars\ks_audi_rs_6_avant\data\ks_audi_rs_6_avant.drivetrain
-content\cars\ks_porsche_992_gt3_rs\data\ks_porsche_992_gt3_rs.gearbox
-content\cars\ks_porsche_992_gt3_rs\data\ks_porsche_992_gt3_rs.clutch
-*/
-
 import { PART_KEYS } from './parts-table.mjs';
 import { DATA_KEYS, DATA_PATH_LABEL_LINKS } from './data-table.mjs';
 
@@ -20,50 +11,79 @@ export { DATA_KEYS };
  * @property {null | string} PartSwap.car_id
  * @property {null | string} PartSwap.mech
  * 
- * @typedef {Record<string, Record<string, ModParts>>} ModPartsLib
- * @typedef {Record<string, Record<string, ModData>>} ModSetupsLib
- * @typedef {Record<string, Record<string, ModSwap>>} ModSwapsLib
- */
+ * @typedef {Object} TyreSet
+ * @property {{ category: string, tyre: string}} TyreSet.front
+ * @property {{ category: string, tyre: string}} TyreSet.rear
+ * 
+ * @typedef {Record<string, Record<string, ModParts>>} SetOfModParts
+ * @typedef {Record<string, Record<string, ModData>>} SetOfModSetups
+ * key: car_id, key: mech, key: mod, value: TyreSet @typedef {Record<string, Record<string, Record<string, TyreSet>>>} SetOfMechTyres
+ * @typedef {Record<string, Record<string, string>>} SetOfTyres
+ * @typedef {Record<string, Record<string, ModSwap>>} RawSwaps
+ * 
+*/
+
+export class ModSwapsLib {
+	total_swaps_count = 0;
+
+	/** @param {RawSwaps} [raw_swaps] */
+	constructor(raw_swaps) {
+		if (!raw_swaps) return;
+		
+		for (const car_id in raw_swaps) {
+			if (car_id === 'total_swaps_count') continue; // @ts-ignore
+			if (!this[car_id]) this[car_id] = {};
+			for (const mech in raw_swaps[car_id]) { // @ts-ignore
+				this[car_id][mech] = new ModSwap(raw_swaps[car_id][mech]);
+				this.total_swaps_count++
+			};
+		};
+	}
+
+	/** @param {string} car_id @param {string} mech @returns {ModSwap | undefined} */ // @ts-ignore
+	get(car_id, mech) { return this[car_id]?.[mech]; }
+
+	/** @param {string} car_id @param {string} mech @param {ModSwap} [swap] */
+	set(car_id, mech, swap = new ModSwap()) { // @ts-ignore
+		if (!this[car_id]) this[car_id] = {}; // @ts-ignore
+		this[car_id][mech] = swap;
+	}
+
+	/** @param {string} car_id @param {string} mech */
+	delete(car_id, mech) {  			// @ts-ignore
+		if (!this[car_id]) return; 		// @ts-ignore
+		delete this[car_id][mech]; 		// @ts-ignore
+		if (!Object.keys(this[car_id]).length) delete this[car_id];
+	}
+}
 
 export class ModSwap { // @ts-ignore
-	constructor() { for (const key in PART_KEYS) this[key] = { car_id: null, mech: null }; }
+	/** Key: part @type {Record<string, { car_id: string, mech: string }>} */
+	parts = {}; // CONTAINS CAR PARTS
+	/** Key: mod ex: 'stock' @type {Record<string, TyreSet>} */
+	tyres = {}; // CONTAINS TYRES SETS // @ts-ignore
+	setup = new ModData(); 	// CONTAINS CAR SETUP
 
-	setup = {}; // WILL CONTAINS CAR SETUP
+	/** @param {ModSwap} [swap] */
+	constructor(swap) {
+		if (!swap) return;
+		for (const key in swap.parts) this.parts[key] = swap.parts[key];
+		for (const key in swap.tyres) this.tyres[key] = swap.tyres[key];
+		if (swap.setup) this.setup = ModData.from(swap.setup);
+		//for (const key of PART_KEYS) this.parts[key] = { car_id: null, mech: null };
+	}
 
-	/** @param {string} part The part name @param {string} car_id ex: ks_mini_jcs_1990 @param {string} [mech] default: 'mech_1' */  // @ts-ignore
-	setPart(part, car_id, mech = 'mech_1') { this[part] = { car_id, mech }; }
-
-	/** @param {string} car_id ex: ks_mini_jcs_1990 @param {string} [mech] default: 'mech_1' */  // @ts-ignore
-	setParts(car_id, mech = 'mech_1') { for (const part in this) this[part] = { car_id, mech }; }
-
-	/** @param {string} part The part name */  // @ts-ignore
-	removePart(part) { this[part] = { car_id: null, mech: null }; }
-	// @ts-ignore
-	reset() { for (const part in this) this[part] = { car_id: null, mech: null }; }
-
-	/** @param {string} part The part name @returns {PartSwap | undefined} */ // @ts-ignore
-	get(part) { return this[part]?.car_id ? this[part] : undefined; }
+	/** @param {string} part The part name @param {string} car_id ex: ks_mini_jcs_1990 @param {string} [mech] default: 'mech_1' */
+	setPart(part, car_id, mech = 'mech_1') { this.parts[part] = { car_id, mech }; }
+	/** @returns {{ car_id: string, mech: string } | undefined } */
+	getPart(part = '.carengine') { return this.parts[part]; }
 
 	/** @param {string} partPath The part path */
 	getPartBasedOnPath(partPath) { // very simple version to test swap
-		for (const p in this) {
-			/** @type {string} */
-			const part = p;
-			if (part === 'setup') continue;
-			else if (!partPath.endsWith(part)) continue
-
-			const { car_id, mech } = this.get(part) || {};
-			if (car_id && mech) return { car_id, mech, part };
-		}
-	}
-
-	/** @param {ModSwap} swap */
-	static from(swap) {
-		const ms = new ModSwap(); // @ts-ignore
-		for (const key in swap) if (key !== 'setup') ms[key] = swap[key]; // @ts-ignore
-		if (swap.setup) for (const key in swap.setup) ms.setup[key] = swap.setup[key];
-		
-		return ms;
+		for (const part in this.parts)
+			if (!partPath.endsWith(part)) continue
+			else if (!this.parts[part].car_id || !this.parts[part].mech) continue
+			else return { part, car_id: this.parts[part].car_id, mech: this.parts[part].mech };
 	}
 }
 
@@ -74,7 +94,7 @@ export class ModParts { // @ts-ignore
 	set(part, path) { this[part] = path; }
 
 	/** @param {string} part The part name @returns {string | undefined} */ // @ts-ignore
-	get(part) { return this[part]?.length > 1 ? this[part] : undefined; }
+	get(part) { return this[part]; }
 
 	/** @param {ModParts} parts */
 	static from(parts) {
@@ -93,6 +113,9 @@ export class ModData { // @ts-ignore
 	 * @param {string} value 						ex: 'Mini John Cooper S' */ // @ts-ignore
 	set(fileExt, valuePath, value) { this[fileExt][valuePath] = value; }
 
+	/** @param {string} fileExt The file extension 	ex: '.cardata' @param {string} valuePath The protobuff path	ex: '1,1' @returns {string | undefined} */ // @ts-ignore
+	get(fileExt, valuePath) { return this[fileExt]?.[valuePath]; }
+
 	/** @param {string} fileExt The file extension 	ex: '.cardata' @param {string} valuePath The protobuff path	ex: '1,1' */
 	isRequired(fileExt, valuePath) { // @ts-ignore
 		if (DATA_PATH_LABEL_LINKS[fileExt]?.[valuePath]) return true;
@@ -105,5 +128,20 @@ export class ModData { // @ts-ignore
 			for (const valuePath in setup[fileExt]) // @ts-ignore
 				md.set(fileExt, valuePath, setup[fileExt][valuePath]);
 		return md;
+	}
+}
+
+export class TyresLib { // TYRES
+	categories;
+	store;
+
+	/** @param {SetOfTyres} raw_tyres_set */
+	constructor(raw_tyres_set) {
+		this.store = raw_tyres_set;
+		this.categories = Object.keys(raw_tyres_set);
+	}
+
+	get(category = 'eco', tyre = 'supercar_175_50_13') {
+		return this.store[category]?.[tyre];
 	}
 }

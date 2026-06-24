@@ -1,4 +1,4 @@
-/*export const DATA_PATH_LABEL_LINKS = {
+/*export const DATA_PATH_LABEL_LINKS = { // row.label based
 	'.car': {
 		'1.1': 'Total Mass',
 		'1.2': 'Sreen Name',
@@ -23,11 +23,14 @@
 		'8.4': 'Linear Steer Rod Ratio',
 	}
 }*/
-export const DATA_PATH_LABEL_LINKS = {
+
+//** @typedef {<Record<string, string>} RecordString */
+/** @type {Record<string, <Record<string, string>>} */
+export const DATA_PATH_LABEL_LINKS = { // row.path based
 	'.car': {
 		'0,0': 'Total Mass',
 		'0,1': 'Sreen Name',
-		'0,3': 'Fuel',
+		//'0,3': 'Fuel',					//useless
 		'0,4': 'Max Fuel',
 		'0,7': 'Pickup Front Height',
 		'0,8': 'Pickup Rear Height',
@@ -39,9 +42,9 @@ export const DATA_PATH_LABEL_LINKS = {
 		'1,16': 'Base Y Rear',
 		'1,17': 'Track Front',
 		'1,18': 'Track Rear',
-		'1,2,0': 'Damage Min Valocity',
-		'1,2,1': 'Damage Gain',
-		'1,2,2': 'Damage Max Damage',
+		//'1,2,0': 'Damage Min Valocity', 	//useless
+		//'1,2,1': 'Damage Gain',			//useless
+		//'1,2,2': 'Damage Max Damage',		//useless
 		'7,0': 'Ff Multi',
 		'7,1': 'Steer Lock',
 		'7,2': 'Steer Ratio',
@@ -49,6 +52,9 @@ export const DATA_PATH_LABEL_LINKS = {
 		//'1,5,0': 'Arb Front Stiffness', // NOT SURE!
 		//'1,5,1': 'Arb Rear Stiffness',  // NOT SURE!
 	},
+	'.carsetuplimits': {
+		'15,0,2': 'Fuel',
+	}
 	// '.mechanicalcarpreset' // -> tyres (probably useless)
 	// presets/.compatibletyres // -> tyres
 }
@@ -61,7 +67,7 @@ export const DATA_LABEL_PATH_LINKS = {}; // TODO
 
 export const DATA_KEYS = [ // '.actor',
 	'.car',
-	'.mechanicalcarpreset',
 	'.carsetup',
-	'.carsetuplimits'
+	'.carsetuplimits',
+	'.mechanicalcarpreset'
 ];
