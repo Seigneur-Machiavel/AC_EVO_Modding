@@ -70,7 +70,6 @@ export class ModSwap { // @ts-ignore
 		for (const key in swap.parts) this.parts[key] = swap.parts[key];
 		for (const key in swap.tyres) this.tyres[key] = swap.tyres[key];
 		if (swap.setup) this.setup = ModData.from(swap.setup);
-		//for (const key of PART_KEYS) this.parts[key] = { car_id: null, mech: null };
 	}
 
 	/** @param {string} part The part name @param {string} car_id ex: ks_mini_jcs_1990 @param {string} [mech] default: 'mech_1' */

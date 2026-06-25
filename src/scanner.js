@@ -93,14 +93,18 @@ class DeepCloner {
 			if (fileIdentity === 'CarSetup' && this.carSetupFiles['.carsetup'] !== f) continue;
 			if (fileIdentity === 'CarSetupLimits' && this.carSetupFiles['.carsetuplimits'] !== f) continue;
 			
-			const endFile = `.${f.split('.')[f.split('.').length]}`;
-			this.#storeRequestedParts(p, f); // STORE PARTS
-			this.#storeRequestsData(rows, endFile, fileIdentity); // STORE DATA (simpler, see if we don't get bug)
-			//for (const endFile in this.mod_data) // STORE DATA
-				//if (f.endsWith(endFile)) this.#storeRequestsData(rows, endFile, fileIdentity) 
+			const endFile = `.${f.split('.').pop()}`;
+			if (DEV_MODE) this.#logDevData(rows, endFile, fileIdentity);
 
+			for (const endFile in this.mod_parts) // STORE PARTS
+				if (!f.endsWith(endFile)) continue;
+				else this.mod_parts.set(endFile, `content\\${path.join(p, f).split('\\content\\')[1]}`);
+			
+			for (const row of rows) // STORE DATAS
+				if (!this.mod_data.isRequired(endFile, row.path)) continue;
+				else this.mod_data.set(endFile, row.path, row.value)
+			
 			FileSystem.copyFile(f, p, dest);
-
 			if (fileIdentity === 'CarSetup') this.carSetupFound = true;
 			if (fileIdentity === 'CarSetupLimits') this.carSetupLimitsFound = true;
 		}
@@ -113,25 +117,13 @@ class DeepCloner {
 			const value = row.value;
 			if (typeof value !== 'string') continue;
 
-			const fileName = value.split('\\').pop();
+			const fileName = row.value.split('\\').pop();
 			if (!fileName) continue;
 
-			const fileExt = `.${value.split('.').pop()}`;
+			const fileExt = `.${row.value.split('.').pop()}`;
 			const fName = fileName.toLowerCase();
 			if (fileExt !== '.tyre' && this.carSetupFiles[fileExt] === null)
 				this.carSetupFiles[fileExt] = fName; // store part path
-
-			/*if (fileExt === '.tyre') { // WE DONT USE STOCK TYRES!
-				const split = value.split('\\');
-				const tyre = split.pop()?.split('.')[0];
-				const category = split.pop();
-				if (!category || !tyre) continue; //throw new Error('Unable to parse .tyre!!');
-
-				if (row.path.length === 1 && row.path[0] === 9) tyreSet.front = { category, tyre };
-				if (row.path.length === 1 && row.path[0] === 10) tyreSet.rear = { category, tyre };
-			}
-
-			// console.log(`Handle ${fileExt} for ${this.mech} > ${fileName}`);*/
 		}
 
 		if (tyreSet.front && tyreSet.rear) this.tyres['stock'] = { front: tyreSet.front, rear: tyreSet.rear };
@@ -158,17 +150,8 @@ class DeepCloner {
 			tyreSet = { front: null, rear: null }; // reset
 		}
 	}
-	#storeRequestedParts(p = 'C:\...', f = 'cardata.car') {
-		for (const endFile in this.mod_parts) // STORE PARTS
-			if (!f.endsWith(endFile)) continue;
-			else this.mod_parts.set(endFile, `content\\${path.join(p, f).split('\\content\\')[1]}`);
-	}
-	#storeRequestsData(/** @type {any} */ rows, endFile = '.car', fileIdentity = 'unknown') {
+	#logDevData(/** @type {any} */ rows, endFile = '.car', fileIdentity = 'unknown') {
 		for (const row of rows) {
-			if (this.mod_data.isRequired(endFile, row.path))
-				this.mod_data.set(endFile, row.path, row.value)
-
-			if (!DEV_MODE) continue;
 			if (fileIdentity !== fileIdentityTrigger) continue; // CONTROL VALUES FOR SPECIFIC FILE OPNLY
 
 			// @ts-ignore
@@ -187,8 +170,9 @@ class DeepCloner {
 				//this.#logRowDataInfo(`${endFile} BOOL ${row.label}`, [row]);
 		}
 	}
+		
 	#logRowDataInfo(/** @type {any} */ rows = [], /** @type {any} */ path = []) { // DEV METHOD
-		path.pop(); // remove last path index
+		[...path].pop(); // remove last path index
 		const pathStartWith = `${path.toString()},`;
 		for (const row of rows) {
 			const pathStr = row.path.toString();

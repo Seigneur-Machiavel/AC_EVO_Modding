@@ -79,7 +79,7 @@ export class Logger {
 		this.hasSaved = true;
 		console.info('SAVING LOGS...');
 		const fileName = Date.now();
-		const logs = this.logs.join('\\n');
+		const logs = this.logs.join('\r\n');
 		const main_paths = new MainPaths();
 		FileSystem.createDirIfNot('logs');		
 		FileSystem.writeFileSync(path.join(main_paths.ROOT, 'logs', `${fileName}.txt`), logs);

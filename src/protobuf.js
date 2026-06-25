@@ -401,55 +401,35 @@ function ensureMessage(node) {
     node.modified = true;
 }
 
-/**
- * @param {any} decoded @param {number[]} indexPath row.path as array @param {string} kind
- * @param {number} fieldNumber @param {number | string} value @param {number[]} [filedPath] row.label.split('.') */
-export function setOrAppend(decoded, indexPath, kind, fieldNumber, value, fieldPath = []) {
-    const res = setValue(decoded.fields, indexPath, kind, value);
-    if (res.ok) return true;
-
-    // Navigate existing nodes by index, create missing ones by fieldPath
-    let current = decoded.fields;
-    for (let i = 0; i < indexPath.length - 1; i++) {
-        const index = indexPath[i];
-        let node = current[index];
-
-        if (!node) {
-            const fNum = fieldPath[i];
-            if (fNum === undefined) { console.warn(`setOrAppend: no fieldPath at level ${i}`); return false; }
-            const tag = (BigInt(fNum) << 3n) | BigInt(WIRE_LEN);
-            node = { field: fNum, wireType: WIRE_LEN, tagBytes: encodeVarint(tag),
-                     content: new Uint8Array(0), message: [], kind: 'message',
-                     modified: true, original: new Uint8Array(0) };
-            current.push(node); // push, not splice — no sparse arrays
-        } else if (node.message === null) {
-            const parsed = tryParse(node.content || new Uint8Array(0));
-            node.message = parsed?.length ? parsed.map(n => classify(n, 0)) : [];
-            node.kind = 'message';
-            node.modified = true;
-        }
-
+// Navigate to a node's parent array by field number path.
+function parentOf(fields, fieldPath) {
+    let current = fields;
+    for (const fNum of fieldPath.slice(0, -1)) {
+        const node = current.find(n => n.field === fNum);
+        if (!node?.message) return null;
         current = node.message;
     }
-
-    const appendRes = kind === 'varint'
-        ? appendVarint(current, fieldNumber, value)
-        : appendFloat32(current, fieldNumber, value);
-
-    if (!appendRes.ok) console.warn(`setOrAppend [${indexPath}] failed: ${appendRes.error}`);
-    return appendRes.ok;
+    return current;
 }
 
-/** Navigate or create nodes by field number path, then set or append the leaf.
- * @param {any} decoded @param {number[]} fieldPath e.g. [7,4,1] from row.label.split('.')
- * @param {string} kind 'varint' | 'float' | 'string'
- * @param {number | string} value */
-export function setOrAppend_v2(decoded, fieldPath, kind, value) {
-    let current = decoded.fields;
+/** Delete all nodes matching a label prefix (e.g. '7.4' removes all field:4 under field:7).
+ * @param {string | number[]} target row.label | row.label.split('.').map(v => Number(v)) */
+export function deleteByLabel(fields, target) {
+    const fieldPath = typeof target === 'string' ? target.split('.').map(Number) : target;
+    const parent = parentOf(fields, fieldPath);
+    if (!parent) return;
+    const leafField = fieldPath.at(-1);
+    let i = parent.length;
+    while (i--) if (parent[i].field === leafField) parent.splice(i, 1);
+}
 
+/** Navigate or create by field number path, then set or append the leaf.
+ * @param {string | number[]} target row.label | row.label.split('.').map(v => Number(v)) */
+export function setOrAppend(decoded, target, kind, value) {
+	const fieldPath = typeof target === 'string' ? target.split('.').map(Number) : target;
+    let current = decoded.fields;
     for (const fNum of fieldPath.slice(0, -1)) {
         let node = current.find(n => n.field === fNum);
-
         if (!node) {
             const tag = (BigInt(fNum) << 3n) | BigInt(WIRE_LEN);
             node = { field: fNum, wireType: WIRE_LEN, tagBytes: encodeVarint(tag),
@@ -462,49 +442,18 @@ export function setOrAppend_v2(decoded, fieldPath, kind, value) {
             node.kind = 'message';
             node.modified = true;
         }
-
         current = node.message;
     }
 
     const leafField = fieldPath.at(-1);
     const existing = current.find(n => n.field === leafField);
-
     if (existing) {
         const res = setValue(current, [current.indexOf(existing)], kind, value);
         if (!res.ok) console.warn(`setOrAppend setValue [${fieldPath}] failed: ${res.error}`);
         return res.ok;
     }
 
-    const appendRes = kind === 'varint'
-        ? appendVarint(current, leafField, value)
-        : appendFloat32(current, leafField, value);
-
-    if (!appendRes.ok) console.warn(`setOrAppend append [${fieldPath}] failed: ${appendRes.error}`);
-    return appendRes.ok;
-}
-
-/** DEPRECATED
- * @param {any} decoded @param {number[]} indexPath row.path @param {string} kind
- * @param {number} fieldNumber @param {number | string} value */
-export function setOrAppendOLD(decoded, indexPath, kind, fieldNumber, value) { // DEPRECATED
-	const res = setValue(decoded.fields, indexPath, kind, value);
-	if (res.ok) return true;
-
-	let p = [...indexPath];
-	let current = decoded.fields;
-	for (const index of p.slice(0, -1)) {
-		if (!current[index].message) {
-			current[index].message = [];
-			current[index].kind = 'message'; // so encode picks .message not .content
-			current[index].modified = true;
-		}
-		current = current[index].message;
-	}
-
-	const appendRes = kind === 'varint'
-		? appendVarint(current, fieldNumber, value)
-		: appendFloat32(current, fieldNumber, value);
-
-	if (!appendRes.ok) console.warn(`setOrAppend [${indexPath}] failed: ${appendRes.error}`);
-	return appendRes.ok;
+    const res = kind === 'varint' ? appendVarint(current, leafField, value) : appendFloat32(current, leafField, value);
+    if (!res.ok) console.warn(`setOrAppend append [${fieldPath}] failed: ${res.error}`);
+    return res.ok;
 }

@@ -2,8 +2,9 @@
 import path from "path";
 import { ModParts, ModSwap } from './classes.mjs';
 import { Logger, FileSystem, resolveFileIdentity } from './helpers.mjs';
-import { decode, encode, setValue, toRows, appendVarint, setOrAppend, setOrAppend_v2 } from "./protobuf.js";
+import { decode, encode, setValue, toRows, appendVarint, setOrAppend, deleteByLabel } from "./protobuf.js";
 
+const DEV_MODE = true; // more logs
 const BRAND = 'pink_mods';
 const YEAR = 2026;
 
@@ -13,9 +14,24 @@ export class Patch_Info {
 	files_count = 0;
 }
 
+class Correction {
+	newValue; fileExtMatch;
+	/** @type {string | undefined} */ rowValueEndWith;
+	/** @type {string | undefined} */ rowLabelEndWith;
+	/** @type {string | undefined} */ rowPathEndWith;
+	/** @type {string | undefined} */ rowValueMatch;
+	/** @type {string | undefined} */ rowLabelMatch;
+	/** @type {string | undefined} */ rowPathMatch;
+	
+	/** @param {any} newValue @param {string} [fileExtMatch] */
+	constructor(newValue, fileExtMatch) { this.newValue = newValue; this.fileExtMatch = fileExtMatch; }
+}
+
 export class CarCreator {
-	/** @type {Record<string, any>} */
-	corrections = {};
+	//** @type {Record<string, Correction>} */
+	//corrections = {};
+	/** @type {Correction[]} */
+	corrections = [];
 	patch_info = new Patch_Info(); // prepare space to store patch infos.
 	MAIN_PATHS;
 	o_id; m_id; mech;
@@ -55,11 +71,14 @@ export class CarCreator {
 			const a = `${prefix}${this.o_id}${lastPart}${original_f}`.replaceAll('\\\\', '\\');
 			const b = `${prefix}${this.m_id}${lastPart}${f}`.replaceAll('\\\\', '\\');
 			const { part, car_id, mech } = this.swap?.getPartBasedOnPath(a) || {};
-			const s = part && car_id && mech && this.parts ? this.parts[car_id][mech].get(part) : null;
+			const s = part && car_id && mech && this.parts ? this.parts[car_id][mech].get(part) : undefined;
 			if (s) this.logger.log(`SWAP!!
 	from > ${a}
-	swap > ${s}`, false);
-			this.corrections[a] = s || b; // swap or new part
+	swap > ${s}`, DEV_MODE);
+
+			const correction = new Correction(s || b);
+			correction.rowValueMatch = a;
+			this.corrections.push(correction);
 		}
 	}
 	prepareTyresCorrections() {
@@ -68,32 +87,50 @@ export class CarCreator {
 		const mechTyres = this.mechTyres[this.o_id]?.[this.mech];
 		if (!mechTyres) return;
 
+		/** @param {import("./classes.mjs").TyreSet} o_TyreSet @param {import("./classes.mjs").TyreSet} m_TyreSet @param {'front' | 'rear'} side */
+		const setTyreCorrection = (o_TyreSet, m_TyreSet, side) => {
+			const m_path = this.tyresLib.get(m_TyreSet[side].category, m_TyreSet[side].tyre);
+			const o_Path = this.tyresLib.get(o_TyreSet[side].category, o_TyreSet[side].tyre);
+			const correction = new Correction(m_path, '.compatibletyres');
+			correction.rowValueMatch = o_Path;
+			correction.rowLabelEndWith = side === 'front' ? '.2' : '.3';
+			this.corrections.push(correction);
+		}
+
 		for (const key in this.swap.tyres) {
-			const m_tyreSet = this.swap.tyres[key];
-			const m_f_path = this.tyresLib.get(m_tyreSet.front.category, m_tyreSet.front.tyre);
-			const m_r_path = this.tyresLib.get(m_tyreSet.rear.category, m_tyreSet.rear.tyre);
-
-			const o_TyreSet = mechTyres[key];
-			const o_f_Path = this.tyresLib.get(o_TyreSet.front.category, o_TyreSet.front.tyre);
-			const o_r_path = this.tyresLib.get(o_TyreSet.rear.category, o_TyreSet.rear.tyre);
-
-			this.corrections[o_f_Path] = m_f_path;
-			if (o_f_Path === o_r_path) continue; // unable double patch different front/rear
-			this.corrections[o_r_path] = m_r_path;
-			console.log('tyre')
+			setTyreCorrection(mechTyres[key], this.swap.tyres[key], 'front');
+			setTyreCorrection(mechTyres[key], this.swap.tyres[key], 'rear');
 		}
 	}
 	prepareSoundCorrections() {
 		const { car_id } = this.swap?.getPart(".carengine") || {};
 		if (!car_id) return; // no engine swap
 
-		this.corrections[`event:/evo_cars/${this.o_id}/`] = `event:/evo_cars/${car_id}/`;
-		this.corrections[`content\\sfx\\${this.o_id}.bank`] = `content\\sfx\\${car_id}.bank`;
+		//this.corrections[`event:/evo_cars/${this.o_id}/`] = `event:/evo_cars/${car_id}/`;
+		//this.corrections[`content\\sfx\\${this.o_id}.bank`] = `content\\sfx\\${car_id}.bank`;
+		const c1 = new Correction(`event:/evo_cars/${car_id}/`, '.actor');
+		c1.rowValueMatch = `event:/evo_cars/${this.o_id}/`;
+		this.corrections.push(c1);
+
+		const c2 = new Correction(`content\\sfx\\${car_id}.bank`, '.actor');
+		c2.rowValueMatch = `content\\sfx\\${this.o_id}.bank`;
+		this.corrections.push(c2);
+
 		this.logger.log(`SWAP!!
 	event_origin > event:/evo_cars/${this.o_id}/
 	event_swap > event:/evo_cars/${car_id}
 	bank_origin > content\\sfx\\${this.o_id}.bank
-	bank_swap > content\\sfx\\${car_id}.bank/`, false);
+	bank_swap > content\\sfx\\${car_id}.bank/`, DEV_MODE);
+	}
+	prepareSetupCorrections() {
+		if (!this.swap) return;
+		for (const endFile in this.swap.setup) // @ts-ignore
+			for (const rowPath in this.swap.setup[endFile]) { // @ts-ignore
+				const newValue = this.swap.setup[endFile][rowPath];
+				const correction = new Correction(newValue, endFile);
+				correction.rowPathMatch = rowPath;
+				this.corrections.push(correction);
+			}
 	}
 	
 	/** Function to process a dir an his children @param {string} p path to dir */
@@ -132,13 +169,13 @@ export class CarCreator {
 			if (fileIdentity === 'CarSetupLimits') decoded = this.#processCarSetupLimits(decoded);
 			
 			for (const row of toRows(decoded.fields)) {
-				const patch_1 = this.#processRowValues(row, file);
-				const patch_2 = this.#processRowPathes(row, file);
-				if (!patch_1 && !patch_2) { this.patch_info.unchanged_count++; continue };
-				if (patch_1 && patch_2) throw new Error('FATAL ERROR!! DOUBLE PATCHING THE SAME ROW!');
+				const { newValue, oldValue } = this.#processRowCorrection(row, file) || {};
+				if (newValue === undefined) { this.patch_info.unchanged_count++; continue };
 
-				setValue(decoded.fields, row.path, row.kind, patch_1 || patch_2);
 				this.patch_info.changed_count++;
+				setValue(decoded.fields, row.path, row.kind, newValue);
+				this.logger.log(`${file} patch: ${oldValue}
+	> ${newValue}`, DEV_MODE);
 			}
 	
 			const newBin = encode(decoded.fields);
@@ -147,35 +184,22 @@ export class CarCreator {
 		}
 	}
 	/** @param {any} row @param {string} file */
-	#processRowValues(row, file) {
-		if (!this.swap) return;
+	#processRowCorrection(row, file) {
+		const fileExt = `.${file.split('.').pop()}`;
+		const rowPathStr = row.path.join(',');
+		const isValuePath = row.value.includes('\\');
+		const value = isValuePath ? row.value.toLowerCase() : row.value;
 
-		for (const endFile in this.swap.setup)
-			if (!file.endsWith(endFile)) continue; // @ts-ignore
-			else if (this.swap.setup[endFile][row.path] === undefined) continue; // @ts-ignore
-			else return this.swap.setup[endFile][row.path];
-	}
-	/** @param {any} row @param {string} file */
-	#processRowPathes(row, file) {
-		if (typeof row.value !== 'string') return; 			// path only
-		if (!row.editable || row.kind !== 'string') return; // path only
+		for (const c of this.corrections) {
+			if (c.fileExtMatch && c.fileExtMatch !== fileExt) continue;
+			if (c.rowPathEndWith && !rowPathStr.endsWith(c.rowPathEndWith)) continue;
+			if (c.rowLabelEndWith && !row.label.endsWith(c.rowLabelEndWith)) continue;
+			if (c.rowValueEndWith && !value.endsWith(c.rowValueEndWith)) continue;
+			if (c.rowPathMatch && rowPathStr !== c.rowPathMatch) continue;
+			if (c.rowLabelMatch && row.label !== c.rowLabelMatch) continue;
+			if (c.rowValueMatch && value !== c.rowValueMatch) continue;
 
-		const value = (row.value).toLowerCase();
-		for (const oldValue in this.corrections) {
-			const o_ext = oldValue.split('.')[1] || null;
-			const m_ext = this.corrections[oldValue].split('.')[1] || null;
-			if (o_ext !== m_ext) continue;
-			if (!value.includes(oldValue)) continue;
-			if (value !== oldValue && this.corrections[value]) continue; // HAS PERFECT PATCH -> SKIP
-			
-			const newValue = !o_ext || (o_ext && this.corrections[oldValue].includes('.'))
-							? this.corrections[oldValue]
-							: `${this.corrections[oldValue]}.${o_ext}`;
-			const patch = value.replaceAll(oldValue, newValue);
-			this.logger.log(`${file} patch: ${oldValue}
-	> ${newValue}`, false);
-			
-			return patch;
+			return { newValue: c.newValue, oldValue: row.value };
 		}
 	}
 	/** @param {any} decoded */

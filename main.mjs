@@ -124,13 +124,14 @@ function clone_car(m_id = 'ks_toyota_supra_mkiv_mod_mech_1', swap) {
 	const carCreator = new CarCreator(MAIN_PATHS, o_id, m_id, mech, TYRES_LIB, MECHS_TYRES, MECHS, s, logger);
 	carCreator.prepareTyresCorrections();
 	carCreator.prepareSoundCorrections();
+	carCreator.prepareSetupCorrections();
 	carCreator.prepareCorrections(path.join(MAIN_PATHS.TEMPLATES, m_id));
 	carCreator.processDir(path.join(MAIN_PATHS.TEMPLATES, m_id));
 	carCreator.createModdedCarContent();
 	patch_infos[m_id] = carCreator.patch_info;
 
 	// LOOP AGAIN TO LOG CHANGES COUNT
-	for (const id in patch_infos) logger.log(`${id} => ${patch_infos[id].changed_count}/${patch_infos[id].unchanged_count} changes.`);
+	for (const id in patch_infos) logger.log(`${id} => ${patch_infos[id].changed_count}/${patch_infos[id].unchanged_count} changes in ${patch_infos[id].files_count} files.`);
 }
 
 // SERVER

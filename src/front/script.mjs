@@ -11,23 +11,24 @@ import { DATA_PATH_LABEL_LINKS, DATA_SPECIAL_COMMENTS } from '../data-table.mjs'
  * @typedef {import('../classes.mjs').SetOfMechTyres} SetOfMechTyres
  */
 
-const store = {
-	acePath: '',
-	/** Raw ModParts catalog from server by car_id @type {SetOfModParts} */
-	mechs: {},
-	/** Raw ModData catalog from server by car_id @type {SetOfModSetups} */
-	setups: {},
-};
-
+let ACE_PATH = '';
 let DRAFTS = new ModSwapsLib();
+/** Raw ModParts catalog from server by car_id @type {SetOfModParts} */
+let MECHS = {};
+/** Raw ModData catalog from server by car_id @type {SetOfModSetups} */
+let SETUPS = {};
 /** @type {TyresLib} */
 let TYRES;
 /** @type {SetOfMechTyres} */
 let MECHS_TYRES;
 let SWAPS = new ModSwapsLib(); // @ts-ignore
 
-window.store = store; // @ts-ignore
-window.SWAPS = SWAPS;
+window.MECHS = () => MECHS; // @ts-ignore
+window.SETUPS = () => SETUPS; // @ts-ignore
+window.TYRES = () => TYRES; // @ts-ignore
+window.MECHS_TYRES = () => MECHS_TYRES; // @ts-ignore
+window.SWAPS = () => SWAPS; // @ts-ignore
+window.DRAFTS = () => DRAFTS;
 
 /** car_id keeps its "ks_" prefix everywhere internally; only stripped for display. */
 const hideKsPrefix = (carId = 'toto') => carId.startsWith('ks_') ? carId.slice(3) : carId;
@@ -62,13 +63,13 @@ socket.onclose = () => notify('Connection to local server lost.', 'error');
 
 function handleServerMessage(/** @type {any} */ msg) {
 	if (msg.type === 'init') {
-		store.acePath = msg.ace_mods_path || '';
-		store.mechs = msg.MECHS || {};
-		store.setups = msg.SETUPS || {};
+		ACE_PATH = msg.ace_mods_path || '';
+		MECHS = msg.MECHS || {};
+		SETUPS = msg.SETUPS || {};
 		TYRES = new TyresLib(msg.TYRES);
 		MECHS_TYRES = msg.MECHS_TYRES || {};
 		if (msg.SWAPS) SWAPS = new ModSwapsLib(msg.SWAPS); // @ts-ignore
-		document.getElementById('path-input').value = store.acePath;
+		document.getElementById('path-input').value = ACE_PATH;
 		renderCarList();
 		return;
 	}
@@ -106,7 +107,7 @@ function renderCarList() { // @ts-ignore
 	const listEl = document.getElementById('car-list'); // @ts-ignore
 	listEl.innerHTML = '';
 
-	const carIds = Object.keys(store.mechs)
+	const carIds = Object.keys(MECHS)
 		.filter((id) => id.toLowerCase().includes(search))
 		.sort((a, b) => hideKsPrefix(a).localeCompare(hideKsPrefix(b))); // @ts-ignore
 	document.getElementById('car-count').textContent = `${carIds.length} car${carIds.length === 1 ? '' : 's'}`;
@@ -133,7 +134,7 @@ function buildCarRow(carId = 'toto') {
 }
 
 function buildMechTagsHTML(carId = 'toto') {
-	const mechs = Object.keys(store.mechs[carId]);
+	const mechs = Object.keys(MECHS[carId]);
 	if (mechs.length === 0) return '<span class="mech-tag none">no variant</span>';
 	return mechs.map((m) => `<span class="mech-tag">${m}</span>`).join('');
 }
@@ -141,7 +142,7 @@ function buildMechTagsHTML(carId = 'toto') {
 function toggleCar(carId = 'toto') {
 	ui = {
 		openCar:        ui.openCar === carId ? null : carId, // @ts-ignore
-		openMech:       ui.openCar === carId ? null : Object.keys(store.mechs[carId])[0],
+		openMech:       ui.openCar === carId ? null : Object.keys(MECHS[carId])[0],
 		openPicker:     null,
 		openTyrePicker: null,
 		tyreSearch:     '',
@@ -175,7 +176,7 @@ function buildSectionTitle(section = 'PARTS') {
 function buildMechSelect(carId = 'toto') {
 	const mechSelect = document.createElement('div');
 	mechSelect.className = 'mech-select';
-	for (const mech of Object.keys(store.mechs[carId])) {
+	for (const mech of Object.keys(MECHS[carId])) {
 		const btn = document.createElement('button');
 		btn.className = `mech-btn ${mech === ui.openMech ? 'active' : ''}`;
 		btn.textContent = mech; // @ts-ignore
@@ -204,11 +205,11 @@ function getSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 
 	if (draft !== undefined) return draft;
 	const applied = SWAPS.get(carId, mech)?.setup.get(fileExt, path);
 	if (applied !== undefined) return applied; // @ts-ignore
-	return store.setups[carId]?.[mech]?.[fileExt]?.[path];
+	return SETUPS[carId]?.[mech]?.[fileExt]?.[path];
 }
 
 function getOriginSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') { // @ts-ignore
-	return store.setups[carId]?.[mech]?.[fileExt]?.[path];
+	return SETUPS[carId]?.[mech]?.[fileExt]?.[path];
 }
 
 function isSpecDrafted(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') {
@@ -308,9 +309,7 @@ function buildTyresList(carId = 'toto') {
 	const wrapper = document.createElement('div');
 	wrapper.className = 'tyres-list';
 
-	for (const mod of mods)
-		if (mod === 'Mod_1') continue;
-		else wrapper.appendChild(buildTyreRow(carId, mech, mod));
+	for (const mod of mods) wrapper.appendChild(buildTyreRow(carId, mech, mod));
 
 	const resetBtn = document.createElement('button');
 	resetBtn.className = 'btn-ghost tyres-reset-all';
@@ -507,8 +506,8 @@ function buildPicker(carId = 'toto', mech = 'toto', key = 'toto') {
 	const renderOptions = () => {
 		const term = search.value.trim().toLowerCase();
 		list.innerHTML = '';
-		for (const donorId of Object.keys(store.mechs).filter((id) => id.toLowerCase().includes(term)).sort((a, b) => hideKsPrefix(a).localeCompare(hideKsPrefix(b))))
-			for (const donorMech of Object.keys(store.mechs[donorId]))
+		for (const donorId of Object.keys(MECHS).filter((id) => id.toLowerCase().includes(term)).sort((a, b) => hideKsPrefix(a).localeCompare(hideKsPrefix(b))))
+			for (const donorMech of Object.keys(MECHS[donorId]))
 				list.appendChild(buildPickerItem(carId, mech, key, donorId, donorMech));
 	};
 
