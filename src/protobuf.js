@@ -426,8 +426,60 @@ export function deleteByLabel(fields, target) {
 /** Navigate or create by field number path, then set or append the leaf.
  * @param {string | number[]} target row.label | row.label.split('.').map(v => Number(v)) */
 export function setOrAppend(decoded, target, kind, value) {
-	const fieldPath = typeof target === 'string' ? target.split('.').map(Number) : target;
-    let current = decoded.fields;
+    const fieldPath = typeof target === 'string' ? target.split('.').map(Number) : target;
+    
+    let currents = [decoded.fields];
+    for (const fNum of fieldPath.slice(0, -1)) {
+        const next = [];
+        for (const current of currents) {
+            const nodes = current.filter(n => n.field === fNum);
+			console.log(`fNum:${fNum} found:${current.filter(n => n.field === fNum).length}`);
+            if (!nodes.length) { // node missing, create it in this current
+                const tag = (BigInt(fNum) << 3n) | BigInt(WIRE_LEN);
+                const node = { field: fNum, wireType: WIRE_LEN, tagBytes: encodeVarint(tag),
+                               content: new Uint8Array(0), message: [], kind: 'message',
+                               modified: true, original: new Uint8Array(0) };
+                current.push(node);
+                next.push(node.message);
+                continue;
+            }
+            for (const node of nodes) {
+                if (node.message === null) {
+                    const parsed = tryParse(node.content || new Uint8Array(0));
+                    node.message = parsed?.length ? parsed.map(n => classify(n, 0)) : [];
+                    node.kind = 'message';
+                    node.modified = true;
+                }
+                next.push(node.message);
+            }
+        }
+        currents = next;
+    }
+	
+	console.log(`currents after nav: ${currents.length}`);
+
+    const leafField = fieldPath.at(-1);
+    for (const current of currents) {
+        const nodes = current.filter(n => n.field === leafField);
+        if (nodes.length) {
+            for (const node of nodes) setValue(current, [current.indexOf(node)], kind, value);
+            continue;
+        }
+        //const res = kind === 'varint' ? appendVarint(current, leafField, value) : appendFloat32(current, leafField, value);
+        const res = kind === 'varint'
+			? appendVarint(current, leafField, value) : kind === 'string'
+				? appendString(current, leafField, value) : appendFloat32(current, leafField, value);
+		if (!res.ok) console.warn(`setOrAppend append [${fieldPath}] failed: ${res.error}`);
+    }
+    return true;
+}
+
+/** Append a new empty repeated message under parentLabel, return its field array for chaining. @returns {any[]} */
+export function appendMessage(target, label) {
+    const fieldPath = typeof label === 'string' ? label.split('.').map(Number) : label;
+    const fields = Array.isArray(target) ? target : target.fields;
+    
+    let current = fields;
     for (const fNum of fieldPath.slice(0, -1)) {
         let node = current.find(n => n.field === fNum);
         if (!node) {
@@ -444,16 +496,19 @@ export function setOrAppend(decoded, target, kind, value) {
         }
         current = node.message;
     }
-
     const leafField = fieldPath.at(-1);
-    const existing = current.find(n => n.field === leafField);
-    if (existing) {
-        const res = setValue(current, [current.indexOf(existing)], kind, value);
-        if (!res.ok) console.warn(`setOrAppend setValue [${fieldPath}] failed: ${res.error}`);
-        return res.ok;
-    }
+    const tag = (BigInt(leafField) << 3n) | BigInt(WIRE_LEN);
+    const node = { field: leafField, wireType: WIRE_LEN, tagBytes: encodeVarint(tag),
+                   content: new Uint8Array(0), message: [], kind: 'message',
+                   modified: true, original: new Uint8Array(0) };
+    current.push(node);
+    return node.message;
+}
 
-    const res = kind === 'varint' ? appendVarint(current, leafField, value) : appendFloat32(current, leafField, value);
-    if (!res.ok) console.warn(`setOrAppend append [${fieldPath}] failed: ${res.error}`);
-    return res.ok;
+export function appendString(fields, fieldNumber, value) {
+    const tag = (BigInt(fieldNumber) << 3n) | BigInt(WIRE_LEN);
+    const content = textEncoder.encode(String(value));
+    fields.push({ field: fieldNumber, wireType: WIRE_LEN, tagBytes: encodeVarint(tag),
+                  content, message: null, kind: 'string', modified: true, original: new Uint8Array(0) });
+    return { ok: true };
 }

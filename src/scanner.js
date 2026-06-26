@@ -10,7 +10,7 @@
 
 import path from "path";
 import { MainPaths } from './helpers.mjs';
-import { ModParts, ModData } from './classes.mjs';
+import { ModParts, ModData, AeroLib } from './classes.mjs';
 import { extract_all_tyres } from './tyres-extractor.mjs';
 import { Logger, FileSystem, resolveFileIdentity } from './helpers.mjs';
 import { decode, encode, toRows } from "./protobuf.js";
@@ -20,10 +20,6 @@ const MAIN_PATHS = new MainPaths();
 const CARS_DIR = 'D:\\_Projects\\ACEvo.Package\\content.extracted\\content\\cars';
 const CARS_LIST = FileSystem.listDirs(CARS_DIR).filter(d => d.startsWith('ks_'));
 console.log(`${CARS_LIST.length} cars found`);
-
-// CLEAR TEMPLATES DIRS (NOT FILES!)
-const templates_dirs = FileSystem.listDirs(MAIN_PATHS.TEMPLATES);
-for (const dir of templates_dirs) FileSystem.removeDirIfExist(path.join(MAIN_PATHS.TEMPLATES, dir));
 
 function extractMechList(car_dir = 'ks_porsche_992_gt3_rs') {
 	/** @type {string[]} */
@@ -40,13 +36,17 @@ function extractMechList(car_dir = 'ks_porsche_992_gt3_rs') {
 
 // DEV
 const DEV_MODE = false; // MORE LOGS & STOP THE LOOP AFTER THE FIRST CAR | Prod: false.
-const fileIdentityTrigger = 'CompatibleTyres'; 	// Only trigger on this file (CarDataCar | CarSetup | CarSetupLimits | CompatibleTyres)
+const DEV_SCAN_ALL_CARS = true; // If falsy, only: 'ks_abarth_695_biposto', 'ks_mini_jcs_1990'
+const APPLY_LABEL_ANTI_REPETITION = false;
+/** Only trigger on this file (CarDataCar | CarSetup | CarSetupLimits | CompatibleTyres) */
+const fileIdentityTrigger = 'CarDataCar';
 /** Full file values log. (one shot) | leave empty for no log.
  * ex: ['Mini John Cooper S', '360'] */ // @ts-ignore
-const valTriggers = ['content\\cars\\common_phsx\\tyres\\supercar\\supercar_215_35_18.tyre'];
+const valTriggers = [];
 // NOTES (Abarth TRIGGERS): ESP='27', ABS='0.4000000059604645', EDL=500, TC: 150
-
+const fieldTrigger = null; // ex: '4.2.2';
 const pathTrigger = null; // '6,'; // (null | string) ex: '0,0,'; '13,6'
+
 
 // NOTES:
 // carsetuplimits -> path > x,x,0= Step | x,x,0= Min | x,x,0= Min
@@ -75,12 +75,15 @@ class DeepCloner {
 
 	/** @type {Record<string, TyreSet>} */
 	tyres		= {};
+	/** Nullified if unable to swap aero @type {string[] | null} */
+	aero_parts	= [];
 	mod_parts 	= new ModParts();
 	mod_data 	= new ModData();
 	constructor(car_id = 'car_1', mech = 'mech_1') { this.car_id = car_id; this.mech = mech };
 	
 	/** @param {string[]} files_list list of files @param {string} p path to dir @param {string} dest destination path */
 	deepCopy = (files_list, p, dest) => {
+		const isDataDir = p.endsWith('\\data');
 		for (const f of files_list) {
 			if (f.endsWith('.carfinalstate') && !f.includes(this.mech)) continue;
 
@@ -99,12 +102,13 @@ class DeepCloner {
 			for (const endFile in this.mod_parts) // STORE PARTS
 				if (!f.endsWith(endFile)) continue;
 				else this.mod_parts.set(endFile, `content\\${path.join(p, f).split('\\content\\')[1]}`);
-			
+
 			for (const row of rows) // STORE DATAS
-				if (!this.mod_data.isRequired(endFile, row.path)) continue;
-				else this.mod_data.set(endFile, row.path, row.value)
+				if (!this.mod_data.isRequired(endFile, row.label)) continue;
+				else this.mod_data.set(endFile, row.label, row.value)
 			
-			FileSystem.copyFile(f, p, dest);
+			const COPY_FILE = !isDataDir || fileIdentity === 'CarDataCar'; // 'data' dir -> we only needs 'cardata.car'
+			if (!DEV_MODE && COPY_FILE) FileSystem.copyFile(f, p, dest);
 			if (fileIdentity === 'CarSetup') this.carSetupFound = true;
 			if (fileIdentity === 'CarSetupLimits') this.carSetupLimitsFound = true;
 		}
@@ -116,6 +120,7 @@ class DeepCloner {
 		for (const row of rows) {
 			const value = row.value;
 			if (typeof value !== 'string') continue;
+			if (!value.includes('\\')) continue; // path only
 
 			const fileName = row.value.split('\\').pop();
 			if (!fileName) continue;
@@ -124,6 +129,13 @@ class DeepCloner {
 			const fName = fileName.toLowerCase();
 			if (fileExt !== '.tyre' && this.carSetupFiles[fileExt] === null)
 				this.carSetupFiles[fileExt] = fName; // store part path
+
+			if (!row.label.startsWith('12.')) continue; // only aero
+			if (fileExt !== '.curve' && fileExt !== '.wing') this.aero_parts = null; // Unable to manage this aero!
+			if (!this.aero_parts) continue;
+			
+			// AERO SPECIFIC (if we needs NAME it's label: '12.3.2')
+			if (row.label === '12.10') this.aero_parts.push(row.value.toLowerCase()); // store aero part
 		}
 
 		if (tyreSet.front && tyreSet.rear) this.tyres['stock'] = { front: tyreSet.front, rear: tyreSet.rear };
@@ -150,33 +162,45 @@ class DeepCloner {
 			tyreSet = { front: null, rear: null }; // reset
 		}
 	}
-	#logDevData(/** @type {any} */ rows, endFile = '.car', fileIdentity = 'unknown') {
+	#loggedLabels = new Set(); // DEV VAR
+	#logDevData(/** @type {any} */ rows, endFile = '.car', fileIdentity = 'unknown') { // DEV METHOD
+		this.#loggedLabels = new Set();
 		for (const row of rows) {
 			if (fileIdentity !== fileIdentityTrigger) continue; // CONTROL VALUES FOR SPECIFIC FILE OPNLY
+			//if (this.#loggedLabels.has(row.label)) continue;
 
 			// @ts-ignore
 			for (const trigger of valTriggers) { // Use trigger to avoid log spam.
 				if (row.value !== trigger) continue;
-				console.info(`${endFile} [${this.car_id} Trigger: ${trigger} | ${row.path}]`);
-				this.#logRowDataInfo(rows, [...row.path]); // DEV INFO
+				console.info(`${endFile} [${this.car_id} trigger: ${trigger} | p:${row.path}] | l:${row.label}`);
+				this.#logRowDataInfo(rows, row.path, row.label);
+			}
+
+			if (fieldTrigger && row.label === fieldTrigger) {
+				console.info(`${endFile} [${this.car_id} fieldTrigger: ${fieldTrigger}] | p:${row.path}] | l:${row.label}`);
+				this.#logRowDataInfo(rows, row.path, row.label);
 			}
 			
 			if (pathTrigger && row.path.toString().startsWith(pathTrigger)) {
-				console.info(`${endFile} [${this.car_id} PathTrigger: ${pathTrigger}]`);
-				this.#logRowDataInfo(rows, [...row.path]);
+				console.info(`${endFile} [${this.car_id} pathTrigger: ${pathTrigger}] | p:${row.path}] | l:${row.label}`);
+				this.#logRowDataInfo(rows, row.path, row.label);
 			}
 
 			//if (row.kind === 'varint')
-				//this.#logRowDataInfo(`${endFile} BOOL ${row.label}`, [row]);
+				//this.#logRowDataInfo(`${endFile} BOOL ${row.label}`, row.path, row.label);
 		}
 	}
-		
-	#logRowDataInfo(/** @type {any} */ rows = [], /** @type {any} */ path = []) { // DEV METHOD
-		[...path].pop(); // remove last path index
-		const pathStartWith = `${path.toString()},`;
+	/** @param {any[]} rows @param {number[]} path @param {string} label */
+	#logRowDataInfo(rows, path, label) { // DEV METHOD
+		const labelSplit = label.split('.');
+		labelSplit.pop();
+		const labelStartWidth = labelSplit.join('.');
+
 		for (const row of rows) {
-			const pathStr = row.path.toString();
-			if (!pathStr.startsWith(pathStartWith)) continue;
+			const pathStr = path.toString();
+			if (APPLY_LABEL_ANTI_REPETITION && this.#loggedLabels.has(row.label)) continue;
+			if (!row.label.startsWith(labelStartWidth)) continue;
+			this.#loggedLabels.add(row.label);
 			console.info(`> path: ${(pathStr).padEnd(12)} | label: ${row.label.padEnd(12)} | kind: ${row.kind.padEnd(8)} | value: ${row.value}`);
 		}
 		console.log('');
@@ -192,8 +216,14 @@ const SETUPS = {}; // SETUP VALUES STORE
 /** key: car_id, key: mech, key: mod, value: TyreSet @type {SetOfMechTyres} */
 const MECHS_TYRES = {}; // MECH'S TYRES STORE
 
+const AEROS = new AeroLib();
+
+if (!DEV_MODE) // CLEAR TEMPLATES DIRS (NOT FILES!)
+	for (const dir of FileSystem.listDirs(MAIN_PATHS.TEMPLATES))
+		FileSystem.removeDirIfExist(path.join(MAIN_PATHS.TEMPLATES, dir));
+
 let total_mech_count = 0;
-const list = DEV_MODE ? ['ks_abarth_695_biposto', 'ks_mini_jcs_1990'] : CARS_LIST;
+const list = DEV_MODE && !DEV_SCAN_ALL_CARS ? ['ks_abarth_695_biposto', 'ks_mini_jcs_1990'] : CARS_LIST;
 for (const car_dir of list) {
 	const mech_list = extractMechList(car_dir);
 	const car_dir_path = 	path.join(CARS_DIR, car_dir);
@@ -215,7 +245,7 @@ for (const car_dir of list) {
 		const template_data_path = 		path.join(template_path, 'data');
 		const template_setup_path = 	path.join(template_data_path, 'setup');
 		const template_presets_path =	path.join(template_path, 'presets');
-		FileSystem.copyFile(car_dir_files[0], car_dir_path, template_path, `_mod_${mech}`);
+		if (!DEV_MODE) FileSystem.copyFile(car_dir_files[0], car_dir_path, template_path, `_mod_${mech}`);
 
 		const deepCloner = new DeepCloner(car_dir, mech);
 		deepCloner.deepCopy(data_files, car_data_path, template_data_path); 			// first DATA
@@ -231,6 +261,7 @@ for (const car_dir of list) {
 		MECHS[car_dir][mech] = deepCloner.mod_parts;
 		SETUPS[car_dir][mech] = deepCloner.mod_data;
 		MECHS_TYRES[car_dir][mech] = deepCloner.tyres;
+		if (deepCloner.aero_parts) AEROS.add(car_dir, deepCloner.aero_parts);
 		total_mech_count++;
 
 		if (!DEV_MODE) { console.info(`${car_dir} ${mech}`); continue };
@@ -243,6 +274,7 @@ for (const car_dir of list) {
 
 if (!DEV_MODE) {
 	FileSystem.writeFileSync(path.join(MAIN_PATHS.ROOT, 'tyres.json'), JSON.stringify(TYRES));
+	FileSystem.writeFileSync(path.join(MAIN_PATHS.ROOT, 'aeros.json'), JSON.stringify(AEROS));
 	FileSystem.writeFileSync(path.join(MAIN_PATHS.ROOT, 'mod_mechs.json'), JSON.stringify(MECHS));
 	FileSystem.writeFileSync(path.join(MAIN_PATHS.ROOT, 'mod_setups.json'), JSON.stringify(SETUPS));
 	FileSystem.writeFileSync(path.join(MAIN_PATHS.ROOT, 'mod_mechs_tyres.json'), JSON.stringify(MECHS_TYRES));

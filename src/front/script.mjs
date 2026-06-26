@@ -1,8 +1,8 @@
 // @ts-check
 
 import { PART_KEYS } from '../parts-table.mjs';
-import { ModSwap, ModData, ModParts, ModSwapsLib, TyresLib } from '../classes.mjs';
-import { DATA_PATH_LABEL_LINKS, DATA_SPECIAL_COMMENTS } from '../data-table.mjs';
+import { ModSwap, ModData, ModParts, ModSwapsLib, TyresLib, AeroLib } from '../classes.mjs';
+import { DATA_LABEL_DESC, DATA_SPECIAL_COMMENTS } from '../data-table.mjs';
 
 /**
  * @typedef {import('../classes.mjs').TyreSet} TyreSet
@@ -19,6 +19,8 @@ let MECHS = {};
 let SETUPS = {};
 /** @type {TyresLib} */
 let TYRES;
+/** @type {AeroLib} */
+let AEROS;
 /** @type {SetOfMechTyres} */
 let MECHS_TYRES;
 let SWAPS = new ModSwapsLib(); // @ts-ignore
@@ -26,6 +28,7 @@ let SWAPS = new ModSwapsLib(); // @ts-ignore
 window.MECHS = () => MECHS; // @ts-ignore
 window.SETUPS = () => SETUPS; // @ts-ignore
 window.TYRES = () => TYRES; // @ts-ignore
+window.AEROS = () => AEROS; // @ts-ignore
 window.MECHS_TYRES = () => MECHS_TYRES; // @ts-ignore
 window.SWAPS = () => SWAPS; // @ts-ignore
 window.DRAFTS = () => DRAFTS;
@@ -33,13 +36,21 @@ window.DRAFTS = () => DRAFTS;
 /** car_id keeps its "ks_" prefix everywhere internally; only stripped for display. */
 const hideKsPrefix = (carId = 'toto') => carId.startsWith('ks_') ? carId.slice(3) : carId;
 
+const roundStr = (val = '0.001500065', decimals = 6) => {
+  const n = Number(val);
+  if (Number.isNaN(n)) return val;
+  const factor = 10 ** decimals;
+  return (Math.round((n + Number.EPSILON) * factor) / factor).toString();
+};
+
 let ui = {
 	openCar:       /** @type {string | null} */ (null),
 	openMech:      /** @type {string | null} */ (null),
 	openPicker:    /** @type {string | null} */ (null), // part key
 	openTyrePicker:/** @type {string | null} */ (null), // tyre mod key
-	tyreSearch: '',
 	tyreCat:       /** @type {string | null} */ (null),
+	openAero: false,
+	tyreSearch: '',
 };
 
 function notify(message = 'toto', type = 'info') {
@@ -67,6 +78,7 @@ function handleServerMessage(/** @type {any} */ msg) {
 		MECHS = msg.MECHS || {};
 		SETUPS = msg.SETUPS || {};
 		TYRES = new TyresLib(msg.TYRES);
+		AEROS = new AeroLib(msg.AERO_LIB.store);
 		MECHS_TYRES = msg.MECHS_TYRES || {};
 		if (msg.SWAPS) SWAPS = new ModSwapsLib(msg.SWAPS); // @ts-ignore
 		document.getElementById('path-input').value = ACE_PATH;
@@ -145,8 +157,9 @@ function toggleCar(carId = 'toto') {
 		openMech:       ui.openCar === carId ? null : Object.keys(MECHS[carId])[0],
 		openPicker:     null,
 		openTyrePicker: null,
-		tyreSearch:     '',
 		tyreCat:        null,
+		openAero:       false,
+		tyreSearch:     '',
 	};
 	renderCarList();
 }
@@ -160,6 +173,10 @@ function buildSwapPanel(carId = 'toto') {
 	panel.appendChild(buildSpecsList(carId, '.car'));
 	panel.appendChild(buildSectionTitle('TYRES'));
 	panel.appendChild(buildTyresList(carId));
+	if (AEROS.store[carId]) {
+		panel.appendChild(buildSectionTitle('AERO (full kit)'));
+		panel.appendChild(buildAeroSection(carId));
+	}
 	panel.appendChild(buildSectionTitle('PARTS'));
 	panel.appendChild(buildPartList(carId));
 	panel.appendChild(buildSwapPanelButtons(carId));
@@ -200,37 +217,39 @@ function buildSwapPanelButtons(carId = 'toto') {
 
 // SPECS
 
-function getSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') {
-	const draft = DRAFTS.get(carId, mech)?.setup.get(fileExt, path);
+function getSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', rowLabel = '1.2') {
+	const draft = DRAFTS.get(carId, mech)?.setup.get(fileExt, rowLabel);
 	if (draft !== undefined) return draft;
-	const applied = SWAPS.get(carId, mech)?.setup.get(fileExt, path);
+	const applied = SWAPS.get(carId, mech)?.setup.get(fileExt, rowLabel);
 	if (applied !== undefined) return applied; // @ts-ignore
-	return SETUPS[carId]?.[mech]?.[fileExt]?.[path];
+
+	const val = SETUPS[carId]?.[mech]?.[fileExt]?.[rowLabel];
+	if (val) return roundStr(val);
 }
 
-function getOriginSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') { // @ts-ignore
-	return SETUPS[carId]?.[mech]?.[fileExt]?.[path];
+function getOriginSpecValue(carId = 'toto', mech = 'mech_1', fileExt = '.car', rowLabel = '1.2') { // @ts-ignore
+	return SETUPS[carId]?.[mech]?.[fileExt]?.[rowLabel];
 }
 
-function isSpecDrafted(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...') {
-	return DRAFTS.get(carId, mech)?.setup.get(fileExt, path);
+function isSpecDrafted(carId = 'toto', mech = 'mech_1', fileExt = '.car', rowLabel = '1.2') {
+	return DRAFTS.get(carId, mech)?.setup.get(fileExt, rowLabel);
 }
 
-function setDraftSpec(carId = 'toto', mech = 'mech_1', fileExt = '.car', path = 'C:/...', /** @type {any} */ value) {
+function setDraftSpec(carId = 'toto', mech = 'mech_1', fileExt = '.car', rowLabel = '1.2', /** @type {any} */ value) {
 	if (!DRAFTS.get(carId, mech)) DRAFTS.set(carId, mech);
-	DRAFTS.get(carId, mech)?.setup.set(fileExt, path, value);
+	DRAFTS.get(carId, mech)?.setup.set(fileExt, rowLabel, value);
 }
 
-function resetSpecToOrigin(carId = 'toto', mech = 'toto', fileExt = 'toto', path = 'toto') {
-	setDraftSpec(carId, mech, fileExt, path, getOriginSpecValue(carId, mech, fileExt, path));
+function resetSpecToOrigin(carId = 'toto', mech = 'toto', fileExt = 'toto', rowLabel = '1.2') {
+	setDraftSpec(carId, mech, fileExt, rowLabel, getOriginSpecValue(carId, mech, fileExt, rowLabel));
 }
 
 function buildSpecsList(carId = 'toto', fileExt = 'toto') {
 	const specsList = document.createElement('div');
 	specsList.className = 'specs-list';
 	specsList.appendChild(buildRealisticCheckbox());
-	for (const path in DATA_PATH_LABEL_LINKS[fileExt]) // @ts-ignore
-		specsList.appendChild(buildSpecRow(carId, ui.openMech, fileExt, path));
+	for (const rowLabel in DATA_LABEL_DESC[fileExt]) // @ts-ignore
+		specsList.appendChild(buildSpecRow(carId, ui.openMech, fileExt, rowLabel));
 	specsList.appendChild(buildSpecsResetAllButton(carId, fileExt));
 	return specsList;
 }
@@ -247,10 +266,10 @@ function buildRealisticCheckbox() {
 	return wrapper;
 }
 
-function buildSpecRow(carId = 'toto', mech = 'toto', fileExt = 'toto', path = 'toto') {
+function buildSpecRow(carId = 'toto', mech = 'toto', fileExt = 'toto', rowLabel = '1.2') {
 	const row = document.createElement('div');
 	row.className = 'spec-row'; // @ts-ignore
-	const desc = DATA_PATH_LABEL_LINKS[fileExt][path];
+	const desc = DATA_LABEL_DESC[fileExt][rowLabel];
 
 	const label = document.createElement('span');
 	label.className = 'spec-label'; // @ts-ignore
@@ -259,15 +278,15 @@ function buildSpecRow(carId = 'toto', mech = 'toto', fileExt = 'toto', path = 't
 
 	const input = document.createElement('input');
 	input.type = 'text';
-	input.className = `spec-input ${isSpecDrafted(carId, mech, fileExt, path) ? 'pending' : ''}`;
-	input.value = getSpecValue(carId, mech, fileExt, path) ?? '';
-	input.onchange = () => { setDraftSpec(carId, mech, fileExt, path, input.value); renderCarList(); };
+	input.className = `spec-input ${isSpecDrafted(carId, mech, fileExt, rowLabel) ? 'pending' : ''}`;
+	input.value = getSpecValue(carId, mech, fileExt, rowLabel) ?? '';
+	input.onchange = () => { setDraftSpec(carId, mech, fileExt, rowLabel, input.value); renderCarList(); };
 	row.appendChild(input);
 
 	const defaultBtn = document.createElement('button');
 	defaultBtn.className = 'btn-ghost';
 	defaultBtn.textContent = 'default';
-	defaultBtn.onclick = () => { resetSpecToOrigin(carId, mech, fileExt, path); renderCarList(); };
+	defaultBtn.onclick = () => { resetSpecToOrigin(carId, mech, fileExt, rowLabel); renderCarList(); };
 	row.appendChild(defaultBtn);
 	return row;
 }
@@ -276,7 +295,7 @@ function buildSpecsResetAllButton(carId = 'toto', fileExt = 'toto') {
 	const resetAllBtn = document.createElement('button');
 	resetAllBtn.className = 'btn-ghost specs-reset-all';
 	resetAllBtn.textContent = 'reset all'; // @ts-ignore
-	resetAllBtn.onclick = () => { for (const path in DATA_PATH_LABEL_LINKS[fileExt]) resetSpecToOrigin(carId, ui.openMech, fileExt, path); renderCarList(); };
+	resetAllBtn.onclick = () => { for (const rowLabel in DATA_LABEL_DESC[fileExt]) resetSpecToOrigin(carId, ui.openMech, fileExt, rowLabel); renderCarList(); };
 	return resetAllBtn;
 }
 
@@ -457,6 +476,57 @@ function buildTyrePickerItem(carId = 'toto', mech = 'toto', mod = 'toto', cat = 
 	return item;
 }
 
+// AERO
+
+function getAeroValue(carId = 'toto', mech = 'toto') {
+    return DRAFTS.get(carId, mech)?.aero
+        ?? SWAPS.get(carId, mech)?.aero
+        ?? 'stock';
+}
+
+function setDraftAero(carId = 'toto', mech = 'toto', value = 'stock') {
+	const draft = DRAFTS.get(carId, mech) || new ModSwap();
+	draft.aero = value;
+	DRAFTS.set(carId, mech, draft);
+}
+
+function buildAeroSection(carId = 'toto') {
+    const mech = ui.openMech ?? '';
+    const current = getAeroValue(carId, mech);
+    const isPending = !!DRAFTS.get(carId, mech)?.aero;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'aero-section';
+
+    // Trigger button (acts as the dropdown "input")
+    const trigger = document.createElement('div');
+    trigger.className = `aero-trigger ${isPending ? 'pending' : ''}`;
+    trigger.textContent = current === 'stock' ? 'stock' : hideKsPrefix(current);
+    trigger.onclick = () => { ui.openAero = !ui.openAero; renderCarList(); };
+    wrapper.appendChild(trigger);
+
+    if (!ui.openAero) return wrapper;
+
+    // Dropdown list
+    const list = document.createElement('div');
+    list.className = 'aero-list';
+
+    const donors = ['stock', ...Object.keys(AEROS.store)
+        .filter(id => id !== carId)
+        .sort((a, b) => hideKsPrefix(a).localeCompare(hideKsPrefix(b)))
+    ];
+
+    for (const donorId of donors) {
+        const item = document.createElement('div');
+        item.className = `aero-item ${donorId === current ? 'active' : ''}`;
+        item.textContent = donorId === 'stock' ? 'stock' : hideKsPrefix(donorId);
+        item.onclick = () => { setDraftAero(carId, mech, donorId); ui.openAero = false; renderCarList(); };
+        list.appendChild(item);
+    }
+
+    wrapper.appendChild(list);
+    return wrapper;
+}
 
 // PARTS
 
@@ -592,6 +662,8 @@ function buildModSwapFromDraft(carId = 'toto', mech = 'toto', draft = new ModSwa
 	// Merge tyres: base first, draft overrides
 	for (const mod in base.tyres) modSwap.tyres[mod] = base.tyres[mod];
 	for (const mod in draft.tyres) modSwap.tyres[mod] = draft.tyres[mod];
+	
+	modSwap.aero = draft.aero || base.aero;
 
 	return modSwap;
 }

@@ -1,7 +1,7 @@
 // @ts-check
 
 import { PART_KEYS } from './parts-table.mjs';
-import { DATA_KEYS, DATA_PATH_LABEL_LINKS } from './data-table.mjs';
+import { DATA_KEYS, DATA_LABEL_DESC } from './data-table.mjs';
 
 export { PART_KEYS };
 export { DATA_KEYS };
@@ -63,6 +63,7 @@ export class ModSwap { // @ts-ignore
 	/** Key: mod ex: 'stock' @type {Record<string, TyreSet>} */
 	tyres = {}; // CONTAINS TYRES SETS // @ts-ignore
 	setup = new ModData(); 	// CONTAINS CAR SETUP
+	aero = 'stock';
 
 	/** @param {ModSwap} [swap] */
 	constructor(swap) {
@@ -70,6 +71,7 @@ export class ModSwap { // @ts-ignore
 		for (const key in swap.parts) this.parts[key] = swap.parts[key];
 		for (const key in swap.tyres) this.tyres[key] = swap.tyres[key];
 		if (swap.setup) this.setup = ModData.from(swap.setup);
+		this.aero = swap.aero || 'stock';
 	}
 
 	/** @param {string} part The part name @param {string} car_id ex: ks_mini_jcs_1990 @param {string} [mech] default: 'mech_1' */
@@ -108,24 +110,24 @@ export class ModData { // @ts-ignore
 	
 	/** 
 	 * @param {string} fileExt 	The file extension 	ex: '.cardata'
-	 * @param {string} valuePath The protobuff path	ex: '1,1'
+	 * @param {string} valuePath The protobuff path	ex: '1.2'
 	 * @param {string} value 						ex: 'Mini John Cooper S' */ // @ts-ignore
 	set(fileExt, valuePath, value) { this[fileExt][valuePath] = value; }
 
-	/** @param {string} fileExt The file extension 	ex: '.cardata' @param {string} valuePath The protobuff path	ex: '1,1' @returns {string | undefined} */ // @ts-ignore
-	get(fileExt, valuePath) { return this[fileExt]?.[valuePath]; }
+	/** @param {string} fileExt The file extension 	ex: '.cardata' @param {string} rowLabel The protobuff path	ex: '1.2' @returns {string | undefined} */ // @ts-ignore
+	get(fileExt, rowLabel) { return this[fileExt]?.[rowLabel]; }
 
-	/** @param {string} fileExt The file extension 	ex: '.cardata' @param {string} valuePath The protobuff path	ex: '1,1' */
-	isRequired(fileExt, valuePath) { // @ts-ignore
-		if (DATA_PATH_LABEL_LINKS[fileExt]?.[valuePath]) return true;
+	/** @param {string} fileExt The file extension 	ex: '.cardata' @param {string} rowLabel The protobuff path	ex: '1.2' */
+	isRequired(fileExt, rowLabel) { // @ts-ignore
+		if (DATA_LABEL_DESC[fileExt]?.[rowLabel]) return true;
 	}
 
 	/** @param {ModData} setup */
 	static from(setup) {
 		const md = new ModData(); // @ts-ignore
 		for (const fileExt in setup) // @ts-ignore
-			for (const valuePath in setup[fileExt]) // @ts-ignore
-				md.set(fileExt, valuePath, setup[fileExt][valuePath]);
+			for (const rowLabel in setup[fileExt]) // @ts-ignore
+				md.set(fileExt, rowLabel, setup[fileExt][rowLabel]);
 		return md;
 	}
 }
@@ -143,4 +145,18 @@ export class TyresLib { // TYRES
 	get(category = 'eco', tyre = 'supercar_175_50_13') {
 		return this.store[category]?.[tyre];
 	}
+}
+
+export class AeroLib { // row.label trigger ('12.10' = path | '12.3.2' = name)
+	store;
+	
+	/** Aero pathes by car (no mech) | key: car_id, value: path[]
+	 * @param {Record<string, string[]>} raw_store */
+	constructor(raw_store = {}) { this.store = raw_store }
+
+	/** @param {string} car_id ex: 'ks_porsche_992_gt3_rs' @param {string[]} aero_parts */
+	add(car_id = 'ks_porsche_992_gt3_rs', aero_parts = []) { this.store[car_id] = aero_parts; }
+
+	/** @param {string} car_id ex: 'ks_porsche_992_gt3_rs' */
+	get(car_id) { return this.store[car_id]; }
 }

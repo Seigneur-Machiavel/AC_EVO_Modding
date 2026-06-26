@@ -1,8 +1,9 @@
 // @ts-check
 import path from "path";
 import { ModParts, ModSwap } from './classes.mjs';
-import { Logger, FileSystem, resolveFileIdentity } from './helpers.mjs';
-import { decode, encode, setValue, toRows, appendVarint, setOrAppend, deleteByLabel } from "./protobuf.js";
+import { decode, encode, setValue, toRows } from "./protobuf.js";
+import { Logger, FileSystem, resolveFileIdentity, detectCarStockInfo, enableCarSetupLimits,
+	assignDefaultElectronic, patchCarSetupLimits, assignAeroParts } from './helpers.mjs';
 
 const DEV_MODE = true; // more logs
 const BRAND = 'pink_mods';
@@ -18,10 +19,8 @@ class Correction {
 	newValue; fileExtMatch;
 	/** @type {string | undefined} */ rowValueEndWith;
 	/** @type {string | undefined} */ rowLabelEndWith;
-	/** @type {string | undefined} */ rowPathEndWith;
 	/** @type {string | undefined} */ rowValueMatch;
 	/** @type {string | undefined} */ rowLabelMatch;
-	/** @type {string | undefined} */ rowPathMatch;
 	
 	/** @param {any} newValue @param {string} [fileExtMatch] */
 	constructor(newValue, fileExtMatch) { this.newValue = newValue; this.fileExtMatch = fileExtMatch; }
@@ -35,23 +34,32 @@ export class CarCreator {
 	patch_info = new Patch_Info(); // prepare space to store patch infos.
 	MAIN_PATHS;
 	o_id; m_id; mech;
-	tyresLib; mechTyres;
+	tyresLib; aeroLib; mechTyres;
 	parts; swap;
 	logger;
+
+	stock_info = {
+		HAS_TC: false, HAS_EDL: false,
+		ESP_freq: 0, ESP_mSpeed: 0,
+		ABS_freq: 0, ABS_mSpeed: 0,
+	};
+	modding_info = { HAS_REBUILD_TC: false, HAS_REBUILD_ABS: false, HAS_REBUILD_ESP: false };
 
 	/** Module to create car (a swap)
 	 * @param {import('./helpers.mjs').MainPaths} MAIN_PATHS
 	 * @param {string} o_id original_car_id @param {string} m_id modded_car_id @param {string} mech modded car mech
 	 * @param {import('./classes.mjs').TyresLib} tyresLib The full set of tyres (pathes)
+	 * @param {import('./classes.mjs').AeroLib} aeroLib The full set of aeros (pathes)
 	 * @param {import('./classes.mjs').SetOfMechTyres} mechTyres The original tyres of mechs
 	 * @param {import('./classes.mjs').SetOfModParts} [parts] Optional parts lib, required id swap is passed
 	 * @param {ModSwap} [swap] Optional swap @param {Logger} [logger] */
-	constructor(MAIN_PATHS, o_id, m_id, mech, tyresLib, mechTyres, parts, swap, logger = new Logger()) {
+	constructor(MAIN_PATHS, o_id, m_id, mech, tyresLib, aeroLib, mechTyres, parts, swap, logger = new Logger()) {
 		this.MAIN_PATHS = MAIN_PATHS;
 		this.o_id = o_id;
 		this.m_id = m_id;
 		this.mech = mech;
 		this.tyresLib = tyresLib;
+		this.aeroLib = aeroLib;
 		this.mechTyres = mechTyres;
 		this.parts = parts;
 		this.swap = swap;
@@ -60,7 +68,7 @@ export class CarCreator {
 
 	prepareCorrections(p = '...\\ks_mini_jcs_1990_mod_mech_1') {
 		for (const d of FileSystem.listDirs(p)) this.prepareCorrections(path.join(p, d));
-	
+		
 		const lastParts = p.split(this.m_id)[1].split('\\');
 		lastParts.shift(); // remove 'mech_x' || empry ex: [data, setup]
 		
@@ -106,8 +114,6 @@ export class CarCreator {
 		const { car_id } = this.swap?.getPart(".carengine") || {};
 		if (!car_id) return; // no engine swap
 
-		//this.corrections[`event:/evo_cars/${this.o_id}/`] = `event:/evo_cars/${car_id}/`;
-		//this.corrections[`content\\sfx\\${this.o_id}.bank`] = `content\\sfx\\${car_id}.bank`;
 		const c1 = new Correction(`event:/evo_cars/${car_id}/`, '.actor');
 		c1.rowValueMatch = `event:/evo_cars/${this.o_id}/`;
 		this.corrections.push(c1);
@@ -125,18 +131,18 @@ export class CarCreator {
 	prepareSetupCorrections() {
 		if (!this.swap) return;
 		for (const endFile in this.swap.setup) // @ts-ignore
-			for (const rowPath in this.swap.setup[endFile]) { // @ts-ignore
-				const newValue = this.swap.setup[endFile][rowPath];
+			for (const rowLabel in this.swap.setup[endFile]) { // @ts-ignore
+				const newValue = this.swap.setup[endFile][rowLabel];
 				const correction = new Correction(newValue, endFile);
-				correction.rowPathMatch = rowPath;
+				correction.rowLabelMatch = rowLabel;
 				this.corrections.push(correction);
 			}
 	}
 	
 	/** Function to process a dir an his children @param {string} p path to dir */
 	processDir(p) {
-		for (const dir of FileSystem.listDirs(p)) this.processDir(path.join(p, dir)); // recursive
 		this.#processDirFiles(p);
+		for (const dir of FileSystem.listDirs(p)) this.processDir(path.join(p, dir)); // recursive
 	}
 	createModdedCarContent() {
 		const DISPLAY_NAME = (this.m_id).replaceAll('_', ' ').replace('ks ', '');
@@ -186,16 +192,13 @@ export class CarCreator {
 	/** @param {any} row @param {string} file */
 	#processRowCorrection(row, file) {
 		const fileExt = `.${file.split('.').pop()}`;
-		const rowPathStr = row.path.join(',');
 		const isValuePath = row.value.includes('\\');
 		const value = isValuePath ? row.value.toLowerCase() : row.value;
 
 		for (const c of this.corrections) {
 			if (c.fileExtMatch && c.fileExtMatch !== fileExt) continue;
-			if (c.rowPathEndWith && !rowPathStr.endsWith(c.rowPathEndWith)) continue;
 			if (c.rowLabelEndWith && !row.label.endsWith(c.rowLabelEndWith)) continue;
 			if (c.rowValueEndWith && !value.endsWith(c.rowValueEndWith)) continue;
-			if (c.rowPathMatch && rowPathStr !== c.rowPathMatch) continue;
 			if (c.rowLabelMatch && row.label !== c.rowLabelMatch) continue;
 			if (c.rowValueMatch && value !== c.rowValueMatch) continue;
 
@@ -204,170 +207,27 @@ export class CarCreator {
 	}
 	/** @param {any} decoded */
 	#processCarDataCar(decoded) {
-		return decoded; // DEV
-		let patched = false;
+		this.stock_info = detectCarStockInfo(toRows(decoded.fields)); // DETECTION
 
-		let TC_freq = 0;
-		const ESP_values = { fHz: 0, mSKmh: 0 };
-		const ABS_pathes = { fHz: [], mSKmh: [] };
-		const ABS_values = { fHz: 0, mSKmh: 0 };
-		for (const row of toRows(decoded.fields)) {
-			if (row.label === '7.1.2') TC_freq = Number(row.value);
+		const res = assignDefaultElectronic(decoded, this.stock_info); // Default: all
+		this.patch_info.changed_count += res.changes;
+		this.modding_info = res.electronic_update_info;
 
-			if (row.label === '7.2.2') ABS_values.fHz = Number(row.value);
-				{ ABS_values.fHz = Number(row.value); ABS_pathes.fHz = row.path };
-			if (row.label === '7.2.4') ABS_values.mSKmh = Number(row.value);
-				{ ABS_values.mSKmh = Number(row.value); ABS_pathes.mSKmh = row.path };
+		if (!this.swap || this.swap.aero === 'stock') return res.decoded; // early return if no aero change
 
-			if (row.label === '7.4.1') ESP_values.fHz = Number(row.value);
-			if (row.label === '7.4.2') ESP_values.mSKmh = Number(row.value);
-		}
-
-		if (!TC_freq) { // SET DEFAULT TC
-			/*setOrAppend(decoded, [6,0,0], 'float', 1, 1, [7,1,1]); // bypass 'Has TC2' + init
-			setOrAppend(decoded, [6,0,0], 'float', 1, 0, [7,1,1]); // bypass 'Has TC2' + init
-			setOrAppend(decoded, [6,0,0], 'float', 2, 50, [7,1,2]); // bypass force
-			setOrAppend(decoded, [6,0,0], 'float', 2, 50, [7,1,2]); // fHz
-			setOrAppend(decoded, [6,0,1], 'float', 3, 20, [7,1,3]);
-			setOrAppend(decoded, [6,0,2], 'float', 4, 0.08, [7,1,4]);
-			setOrAppend(decoded, [6,0,3], 'float', 5, 10, [7,1,5]);
-			setOrAppend(decoded, [6,0,4], 'float', 6, 1, [7,1,6]);
-
-			setOrAppend(decoded, [6,0,5,0], 'float', 1, 0, [7,1,7,1]); // bypass init
-			setOrAppend(decoded, [6,0,5,0], 'float', 1, -1, [7,1,7,1]); // bypass init
-			setOrAppend(decoded, [6,0,5,1], 'float', 2, -1, [7,1,7,2]);
-
-			setOrAppend(decoded, [6,0,6,0], 'float', 1, 0, [7,1,7,1]); // bypass init
-			setOrAppend(decoded, [6,0,6,0], 'float', 1, 0.15, [7,1,7,1]);
-			setOrAppend(decoded, [6,0,6,1], 'float', 2, 0.2, [7,1,7,2]);
-			setOrAppend(decoded, [6,0,6,2], 'float', 3, 15, [7,1,7,3]);
-			setOrAppend(decoded, [6,0,6,3], 'float', 4, 0.5, [7,1,7,4]);
-			setOrAppend(decoded, [6,0,6,4], 'float', 5, 1, [7,1,7,5]);
-			setOrAppend(decoded, [6,0,6,5], 'float', 6, 1, [7,1,7,6]);
-			setOrAppend(decoded, [6,0,6,6], 'float', 7, 4, [7,1,7,7]);
-
-			setOrAppend(decoded, [6,0,7,0], 'float', 1, 0, [7,1,7,1]); // bypass init
-			setOrAppend(decoded, [6,0,7,0], 'float', 1, 0.2, [7,1,7,1]);
-			setOrAppend(decoded, [6,0,7,1], 'float', 2, 0.25, [7,1,7,2]);
-			setOrAppend(decoded, [6,0,7,2], 'float', 3, 15, [7,1,7,3]);
-			setOrAppend(decoded, [6,0,7,3], 'float', 4, 0.5, [7,1,7,4]);
-			setOrAppend(decoded, [6,0,7,4], 'float', 5, 1, [7,1,7,5]);
-			setOrAppend(decoded, [6,0,7,5], 'float', 6, 2, [7,1,7,6]);
-			setOrAppend(decoded, [6,0,7,6], 'float', 7, 4, [7,1,7,7]);*/
-		}
-
-		if (ABS_values.fHz > 40 || ABS_values.mSKmh > 20) {// SET DEFAULT ABS
-			setOrAppend(decoded, [6,1,2], 'float', ABS_pathes.fHz[ABS_pathes.fHz.length - 1], 40, ABS_pathes.fHz);
-			setOrAppend(decoded, [6,1,4], 'float', ABS_pathes.mSKmh[ABS_pathes.mSKmh.length - 1], 20, ABS_pathes.mSKmh);
-		}
-
-		if (!ESP_values.fHz && !ESP_values.mSKmh) { // SET DEFAULT ESP
-			setOrAppend(decoded, [6,2,0], 'varint', 1, 0, [7,3,1]); // bypass
-			setOrAppend(decoded, [6,2,0], 'varint', 1, 1, [7,3,1]);
-			setOrAppend(decoded, [6,2,1], 'float', 2, 500, [7,3,2]);
-			setOrAppend(decoded, [6,2,2], 'float', 3, 200, [7,3,3]);
-			setOrAppend(decoded, [6,2,3], 'float', 4, 0.05, [7,3,4]);
-			setOrAppend(decoded, [6,2,4], 'float', 5, 0.1, [7,3,5]);
-			setOrAppend(decoded, [6,2,5], 'float', 6, 0.12, [7,3,6]);
-			setOrAppend(decoded, [6,2,6], 'float', 7, 0.3, [7,3,7]);
-			setOrAppend(decoded, [6,2,7], 'float', 8, 27, [7,3,8]);
-
-			setOrAppend(decoded, [6,3,0], 'float', 1, 50, [7,4,1]);
-			setOrAppend(decoded, [6,3,1], 'float', 2, 27, [7,4,2]);
-			setOrAppend(decoded, [6,3,2], 'float', 3, 0, [7,4,3]); // bypass 'kind: bytes    | value: '
-			setOrAppend(decoded, [6,3,3,0], 'float', 1, 0, [7,4,3,1]); // bypass init
-			setOrAppend(decoded, [6,3,3,0], 'float', 1, 1, [7,4,3,1]); // gain
-			setOrAppend(decoded, [6,3,3,1], 'float', 2, 3, [7,4,3,2]); // steer gain
-			setOrAppend(decoded, [6,3,3,2], 'float', 4, 3, [7,4,3,4]);
-			setOrAppend(decoded, [6,3,3,3], 'float', 5, 0.05, [7,4,3,5]);
-			setOrAppend(decoded, [6,3,3,4], 'float', 6, 0.5, [7,4,3,6]);
-			setOrAppend(decoded, [6,3,3,5], 'float', 10, 0.7, [7,4,3,10]);
-			setOrAppend(decoded, [6,3,3,6], 'float', 11, 0.4, [7,4,3,11]);
-			setOrAppend(decoded, [6,3,3,7], 'float', 12, 2, [7,4,3,12]);
-			setOrAppend(decoded, [6,3,3,8], 'float', 13, 360, [7,4,3,13]);
-		}
-
-		if (patched) this.patch_info.changed_count++;
-		return decode(encode(decoded.fields)); // return final state
+		const aeroPathes = this.aeroLib.get(this.swap.aero);
+		const res2 = assignAeroParts(res.decoded, aeroPathes);
+		return res2.decoded;
 	}
 	/** @param {any} decoded */
-	#processCarSetupLimits(decoded) {
-		return decoded; // DEV
-		/*setOrAppendByField(decoded, [5,1,1], 'float', 1); 	// TC Step: 1
-		setOrAppendByField(decoded, [5,1,3], 'float', 0); 	// TC max: 0
+	#processCarSetupLimits(decoded) { // APPLY HARDCODED PATCHES
+		const maxFuel = this.swap?.setup.get('.car', '0,4'); // ALIGNED MAX FUEL TO CarDataCar
+		const patchRes = patchCarSetupLimits(decoded, this.modding_info, maxFuel);
+		this.patch_info.changed_count += patchRes.changes;
 
-		setOrAppendByField(decoded, [5,3,1], 'float', 1); 	// ABS Step: 1
-		setOrAppendByField(decoded, [5,3,2], 'float', 0); 	// ABS min: 0
+		const enableRes = enableCarSetupLimits(patchRes.decoded);
+		this.patch_info.changed_count += enableRes.changes;
 
-		setOrAppendByField(decoded, [5,6,1], 'float', 1);	// ESC Step: 1
-		setOrAppendByField(decoded, [5,6,3], 'float', 1); 	// ESC max: 1*/
-		setOrAppend(decoded, [13,0,0], 'float', 1, 1, [5,1,1]); // TC Step: 1
-		setOrAppend(decoded, [13,0,1], 'float', 3, 1, [5,1,3]); // TC max: 1
-
-		setOrAppend(decoded, [13,2,0], 'float', 1, 1, [5,1,1]); // ABS Step: 1
-		setOrAppend(decoded, [13,2,1], 'float', 2, 0, [5,2,2]); // ABS min: 0
-		setOrAppend(decoded, [13,2,2], 'float', 3, 1, [5,2,3]); // ABS max: 1
-
-		setOrAppend(decoded, [13,5,0], 'float', 1, 1, [5,6,1]);	// ESC Step: 1
-		setOrAppend(decoded, [13,5,1], 'float', 3, 1, [5,6,3]); // ESC max: 1
-
-		decoded = decode(encode(decoded.fields));
-
-		// Pass 1: collect paths to patch
-		const rows = toRows(decoded.fields);
-		const toBool = [];
-		let data_batch = { step: 0, min: 0, max: 0 };
-		let lastPath;
-		let lastFieldPath;
-		let lastField = 1;
-		for (const row of rows) {
-			if (lastPath && lastField < 4 && data_batch.step && data_batch.max !== data_batch.min)
-				toBool.push({ path: [...lastPath], fieldPath: [lastFieldPath] });
-
-			if (lastField <= row.field) {
-				lastPath = [...row.path];
-				lastFieldPath = [...row.label.split('.')];
-				//lastFieldPath = row.label.split('.').map((/** @param {string} str */ str => Number(str)));
-				data_batch = { step: 0, min: 0, max: 0 };
-			}
-
-			if (row.field === 1) data_batch.step = Number(row.value);
-			if (row.field === 2) data_batch.min  = Number(row.value);
-			if (row.field === 3) data_batch.max  = Number(row.value);
-			lastField = row.field;
-			lastFieldPath = row.label.split('.');
-		}
-
-		// Don't forget the last batch
-		if (lastPath && lastField < 4 && data_batch.step && data_batch.max !== data_batch.min)
-			toBool.push({ path: [...lastPath], fieldPath: [lastFieldPath] });
-
-		console.log('toBool sample:', toBool[0], 'decoded field count:', decoded.fields.length);
-
-		if (toBool.length) { // Pass 2: apply patches
-			for (const { path, fieldPath } of toBool) {
-				let current = decoded.fields;
-				for (const index of path.slice(0, -1)) current = current[index].message; // descend through nested submessages
-				if (!appendVarint(current, 4, 1)) console.warn('toto');
-				//setOrAppend(decoded, path, 'varint', 4, 1, fieldPath);
-				
-				//const res = appendVarint(current, 3, 1);
-				//const res = appendVarint(current, 4, 1); // field 4, not 3
-				//console.log(`${p} should be modifiable! ${res.ok ? 'ok' : res.error}`);
-			}
-				//setOrAppend(decoded, p, 'varint', 4, 1);
-				//setOrAppendByField(decoded, p, 'varint', 1);
-			this.patch_info.changed_count++;
-		}
-
-		const encoded = encode(decoded.fields);
-		const decoded2 = decode(encoded);
-		//for (const row of toRows(decoded2.fields)) { // useless test
-			//if (row.kind !== 'varint' || row.path[row.path.length -1] !== 3) continue;
-			//if (row.field !== 4 || row.kind !== 'varint') continue;
-			//console.warn(`>>> BOOL`, [row]);
-		//}
-
-		return decoded2; // return final state
+		return enableRes.decoded; // return final state
 	}
 }

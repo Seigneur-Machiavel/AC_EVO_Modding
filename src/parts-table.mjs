@@ -8,5 +8,5 @@ export const PART_KEYS = [
 	'front.coilover',
 	'rear.coilover',
 	'front.suspension',
-	'rear.suspension'
+	'rear.suspension',
 ];

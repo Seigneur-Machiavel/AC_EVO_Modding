@@ -5,7 +5,7 @@ import http from 'http';
 import { WebSocketServer } from 'ws';
 import { CarCreator, Patch_Info } from "./src/car-creator.mjs";
 import { MainPaths, FileSystem, Logger, MIME_TYPES } from './src/helpers.mjs';
-import { ModSwap, ModParts, ModData, ModSwapsLib, TyresLib } from './src/classes.mjs';
+import { ModSwap, ModParts, ModData, ModSwapsLib, TyresLib, AeroLib } from './src/classes.mjs';
 
 process.on("exit", () => logger.save());
 
@@ -37,6 +37,7 @@ const PORT = 4639;
 /** @type {SetOfModParts} */ 	const MECHS = {};
 /** @type {SetOfTyres} */ 		let TYRES = {};
 /** @type {TyresLib} */ 		let TYRES_LIB;
+/** @type {AeroLib} */ 			let AERO_LIB;
 /** @type {ModSwapsLib} */ 	let SWAPS = new ModSwapsLib();
 let MAIN_PATHS = new MainPaths();
 
@@ -52,7 +53,8 @@ let MAIN_PATHS = new MainPaths();
 function init() { // @ts-ignore
 	MECHS_TYRES = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'mod_mechs_tyres.json'))); // @ts-ignore
 	TYRES = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'tyres.json')));
-	TYRES_LIB = new TyresLib(TYRES);
+	TYRES_LIB = new TyresLib(TYRES); // @ts-ignore
+	AERO_LIB = new AeroLib(JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'aeros.json'))).store);
 
 	// LOAD USER PREFERENCES
 	try {
@@ -121,7 +123,7 @@ function clone_car(m_id = 'ks_toyota_supra_mkiv_mod_mech_1', swap) {
 	const o_id = m_id.split('_mod_')[0]; // original car id
 	const mech = m_id.split('_mod_')[1];
 	const s = swap || SWAPS.get(o_id, mech);
-	const carCreator = new CarCreator(MAIN_PATHS, o_id, m_id, mech, TYRES_LIB, MECHS_TYRES, MECHS, s, logger);
+	const carCreator = new CarCreator(MAIN_PATHS, o_id, m_id, mech, TYRES_LIB, AERO_LIB, MECHS_TYRES, MECHS, s, logger);
 	carCreator.prepareTyresCorrections();
 	carCreator.prepareSoundCorrections();
 	carCreator.prepareSetupCorrections();
@@ -179,7 +181,7 @@ function handleSwapUpdate(payload) {
 
 if (MAIN_PATHS.ACE_MODS) init(); // INIT FIRST > LOADING PREFERENCES, MECHS, SWAPS.
 const wss = new WebSocketServer({ server });
-const initMessage = () => { return { type: 'init', ace_mods_path: MAIN_PATHS.ACE_MODS, MECHS, SETUPS, SWAPS, TYRES, MECHS_TYRES } }
+const initMessage = () => { return { type: 'init', ace_mods_path: MAIN_PATHS.ACE_MODS, MECHS, SETUPS, SWAPS, TYRES, MECHS_TYRES, AERO_LIB } }
 wss.on('connection', (socket) => {
 	console.log('[ws] client connected');
 

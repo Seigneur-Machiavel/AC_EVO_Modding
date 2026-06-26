@@ -401,3 +401,57 @@ button {
 	border: 1px solid var(--line);
 }
 .tyre-picker-item button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+
+.aero-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.4rem;
+	margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.aero-trigger-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.aero-trigger {
+    flex: 1;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    background: white;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+}
+
+.aero-trigger:hover { border-color: var(--pink); }
+.aero-trigger.pending { border-color: var(--green); color: var(--green); font-weight: 600; }
+
+.aero-list {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    border: 1px solid var(--green);
+    border-radius: 8px;
+    padding: 0.4rem;
+    background: #f3fff8;
+}
+
+.aero-item {
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    background: white;
+    border: 1px solid var(--line);
+}
+
+.aero-item:hover { border-color: var(--pink); }
+.aero-item.active { color: var(--pink-dark); font-weight: 600; border-color: var(--pink); }
