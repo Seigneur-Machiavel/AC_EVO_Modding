@@ -1,11 +1,11 @@
 // @ts-check
 import path from "path";
-import { ModParts, ModSwap } from './classes.mjs';
+import { ModParts, ModSwap, PART_KEYS } from './classes.mjs';
 import { decode, encode, setValue, toRows } from "./protobuf.js";
 import { Logger, FileSystem, resolveFileIdentity, detectCarStockInfo, enableCarSetupLimits,
 	assignDefaultElectronic, patchCarSetupLimits, assignAeroParts } from './helpers.mjs';
 
-const DEV_MODE = true; // more logs
+const DEV_MODE = false; // more logs
 const BRAND = 'pink_mods';
 const YEAR = 2026;
 
@@ -45,6 +45,11 @@ export class CarCreator {
 	};
 	modding_info = { HAS_REBUILD_TC: false, HAS_REBUILD_ABS: false, HAS_REBUILD_ESP: false };
 
+	/** @type {{input: string, output: string, files: string[]}[]} */
+	arch = [];
+	filesToSimplyCopy = new Set(['.visualcarpreset']);
+	contentCarsPrefix = 'content\\cars\\';
+
 	/** Module to create car (a swap)
 	 * @param {import('./helpers.mjs').MainPaths} MAIN_PATHS
 	 * @param {string} o_id original_car_id @param {string} m_id modded_car_id @param {string} mech modded car mech
@@ -66,26 +71,59 @@ export class CarCreator {
 		this.logger = logger;
 	}
 
-	prepareCorrections(p = '...\\ks_mini_jcs_1990_mod_mech_1') {
-		for (const d of FileSystem.listDirs(p)) this.prepareCorrections(path.join(p, d));
-		
-		const lastParts = p.split(this.m_id)[1].split('\\');
-		lastParts.shift(); // remove 'mech_x' || empry ex: [data, setup]
-		
-		const prefix = 'content\\cars\\';
-		const lastPart = `\\${lastParts.join('\\')}\\`; // ex: \\data\\setup
-		for (const f of FileSystem.listFiles(p)) {
-			const original_f = !f.includes('_mod_') ? f : `${f.split('_mod_')[0]}.${f.split('.')[1]}`;
-			const a = `${prefix}${this.o_id}${lastPart}${original_f}`.replaceAll('\\\\', '\\');
-			const b = `${prefix}${this.m_id}${lastPart}${f}`.replaceAll('\\\\', '\\');
-			const { part, car_id, mech } = this.swap?.getPartBasedOnPath(a) || {};
-			const s = part && car_id && mech && this.parts ? this.parts[car_id][mech].get(part) : undefined;
-			if (s) this.logger.log(`SWAP!!
-	from > ${a}
-	swap > ${s}`, DEV_MODE);
+	prepareArch(p = '...\\ks_mini_jcs_1990_mod_mech_1') {
+		const filesList = FileSystem.listFiles(p);
+		const { TEMPLATES, INPUT, OUTPUT } = this.MAIN_PATHS;
+		const output = (p).replace(TEMPLATES, OUTPUT).replace(INPUT, OUTPUT);
+		FileSystem.createDirIfNot(output); // ensure dir exist
+		this.arch.push({ input: p, output, files: filesList });
 
-			const correction = new Correction(s || b);
-			correction.rowValueMatch = a;
+		for (const d of FileSystem.listDirs(p)) this.prepareArch(path.join(p, d)); // recursive
+	}
+	prepareModFilesCorrections() {
+		for (const entry of this.arch) {
+			const { input, output, files } = entry;
+			const lastParts = input.split(this.m_id)[1].split('\\');
+			lastParts.shift(); // remove 'mech_x' || empry ex: [data, setup]
+			
+			const lastPart = `\\${lastParts.join('\\')}\\`; // ex: \\data\\setup
+			for (const f of files) {
+				const original_f = !f.includes('_mod_') ? f : `${f.split('_mod_')[0]}.${f.split('.')[1]}`;
+				const a = `${this.contentCarsPrefix}${this.o_id}${lastPart}${original_f}`.replaceAll('\\\\', '\\');
+				const b = `${this.contentCarsPrefix}${this.m_id}${lastPart}${f}`.replaceAll('\\\\', '\\');
+				const { part, car_id, mech } = this.swap?.getPartBasedOnPath(a) || {};
+				const s = part && car_id && mech && this.parts ? this.parts[car_id][mech].get(part) : undefined;
+				if (s) this.logger.log(`SWAP!!
+		from > ${a}
+		swap > ${s}`, DEV_MODE);
+				
+				const correction = new Correction(s || b);
+				correction.rowValueMatch = a;
+				this.corrections.push(correction);
+			}
+		}
+	}
+	preparePartsCorrections() {
+		if (!this.parts) return;
+
+		const o_parts = this.parts[this.o_id][this.mech];
+		for (const partName of PART_KEYS) {
+			const o_path = o_parts.get(partName);
+			if (!o_path) 
+				throw new Error('Missing part!!');
+
+			const { part, car_id, mech } = this.swap?.getPartBasedOnPath(o_path) || {};
+			if (!part || !car_id || !mech) continue;
+
+			const s_path = this.parts[car_id][mech].get(part);
+			if (!s_path) continue;
+
+			this.logger.log(`[PART] SWAP!!
+	from > ${o_path}
+	swap > ${s_path}`, DEV_MODE);
+
+			const correction = new Correction(s_path);
+			correction.rowValueMatch = o_path;
 			this.corrections.push(correction);
 		}
 	}
@@ -114,17 +152,21 @@ export class CarCreator {
 		const { car_id } = this.swap?.getPart(".carengine") || {};
 		if (!car_id) return; // no engine swap
 
-		const c1 = new Correction(`event:/evo_cars/${car_id}/`, '.actor');
-		c1.rowValueMatch = `event:/evo_cars/${this.o_id}/`;
+		const c1 = new Correction(`event:/evo_cars/${car_id}/engine_int`, '.actor');
+		c1.rowValueMatch = `event:/evo_cars/${this.o_id}/engine_int`;
 		this.corrections.push(c1);
 
-		const c2 = new Correction(`content\\sfx\\${car_id}.bank`, '.actor');
-		c2.rowValueMatch = `content\\sfx\\${this.o_id}.bank`;
+		const c2 = new Correction(`event:/evo_cars/${car_id}/engine_ext`, '.actor');
+		c2.rowValueMatch = `event:/evo_cars/${this.o_id}/engine_ext`;
 		this.corrections.push(c2);
 
-		this.logger.log(`SWAP!!
-	event_origin > event:/evo_cars/${this.o_id}/
-	event_swap > event:/evo_cars/${car_id}
+		const c3 = new Correction(`content\\sfx\\${car_id}.bank`, '.actor');
+		c3.rowValueMatch = `content\\sfx\\${this.o_id}.bank`;
+		this.corrections.push(c3);
+
+		this.logger.log(`[SFX] SWAP!!
+	event_origin > event:/evo_cars/${this.o_id}/engine_...
+	event_swap > event:/evo_cars/${car_id}/engine_...
 	bank_origin > content\\sfx\\${this.o_id}.bank
 	bank_swap > content\\sfx\\${car_id}.bank/`, DEV_MODE);
 	}
@@ -139,10 +181,40 @@ export class CarCreator {
 			}
 	}
 	
-	/** Function to process a dir an his children @param {string} p path to dir */
-	processDir(p) {
-		this.#processDirFiles(p);
-		for (const dir of FileSystem.listDirs(p)) this.processDir(path.join(p, dir)); // recursive
+	processArch() {
+		for (const entry of this.arch) {
+			const { input, output, files } = entry;
+			for (const file of files) {
+				const fileExt = `.${file.split('.').pop()}`;
+				const outputFilename = !file.endsWith('.carfinalstate') ? file : file.replace(this.o_id, this.m_id);
+				if (this.filesToSimplyCopy.has(fileExt)) { // fast copy
+					FileSystem.fastCopy(path.join(input, file), path.join(output, outputFilename));
+					continue;
+				}
+
+				const fileIdentity = resolveFileIdentity(file);
+				const filePath = path.join(input, file);
+				this.patch_info.files_count++;
+				
+				let decoded = decode(FileSystem.readFileSync(filePath));
+				if (fileIdentity === 'CarDataCar') decoded = this.#processCarDataCar(decoded); // ADD NECESSARY PRESETS (ELECTRONICS DEFAULT)
+				if (fileIdentity === 'CarSetupLimits') decoded = this.#processCarSetupLimits(decoded);
+
+				for (const row of toRows(decoded.fields)) {
+					const { newValue, oldValue } = this.#processRowCorrection(row, fileExt) || {};
+					if (newValue === undefined) { this.patch_info.unchanged_count++; continue };
+
+					this.patch_info.changed_count++;
+					setValue(decoded.fields, row.path, row.kind, newValue);
+					this.logger.log(`[APPLY PATCH] ${file}
+		${oldValue}
+		> ${newValue}`, DEV_MODE);
+				}
+				
+				const newBin = encode(decoded.fields);
+				FileSystem.writeFileSync(path.join(output, outputFilename), newBin);
+			}
+		}
 	}
 	createModdedCarContent() {
 		const DISPLAY_NAME = (this.m_id).replaceAll('_', ' ').replace('ks ', '');
@@ -158,40 +230,8 @@ export class CarCreator {
 		FileSystem.writeFileSync(path.join(this.MAIN_PATHS.OUTPUT, this.m_id, `${this.m_id}.moddedcarcontent`), newBin);
 	}
 
-	/** @param {string} p path to dir */
-	#processDirFiles(p) {
-		const files = FileSystem.listFiles(p);
-		const { TEMPLATES, INPUT, OUTPUT } = this.MAIN_PATHS;
-		const outputDirPath = (p).replace(TEMPLATES, OUTPUT).replace(INPUT, OUTPUT);
-		FileSystem.createDirIfNot(outputDirPath);
-	
-		for (const file of files) {
-			const fileIdentity = resolveFileIdentity(file);
-			const filePath = path.join(p, file);
-			this.patch_info.files_count++;
-			
-			let decoded = decode(FileSystem.readFileSync(filePath));
-			if (fileIdentity === 'CarDataCar') decoded = this.#processCarDataCar(decoded); // ADD NECESSARY PRESETS (ELECTRONICS DEFAULT)
-			if (fileIdentity === 'CarSetupLimits') decoded = this.#processCarSetupLimits(decoded);
-			
-			for (const row of toRows(decoded.fields)) {
-				const { newValue, oldValue } = this.#processRowCorrection(row, file) || {};
-				if (newValue === undefined) { this.patch_info.unchanged_count++; continue };
-
-				this.patch_info.changed_count++;
-				setValue(decoded.fields, row.path, row.kind, newValue);
-				this.logger.log(`${file} patch: ${oldValue}
-	> ${newValue}`, DEV_MODE);
-			}
-	
-			const newBin = encode(decoded.fields);
-			const outputFilename = !file.endsWith('.carfinalstate') ? file : file.replace(this.o_id, this.m_id);
-			FileSystem.writeFileSync(path.join(outputDirPath, outputFilename), newBin);
-		}
-	}
-	/** @param {any} row @param {string} file */
-	#processRowCorrection(row, file) {
-		const fileExt = `.${file.split('.').pop()}`;
+	/** @param {any} row @param {string} fileExt ex: '.car' */
+	#processRowCorrection(row, fileExt) {
 		const isValuePath = row.value.includes('\\');
 		const value = isValuePath ? row.value.toLowerCase() : row.value;
 
@@ -221,7 +261,7 @@ export class CarCreator {
 	}
 	/** @param {any} decoded */
 	#processCarSetupLimits(decoded) { // APPLY HARDCODED PATCHES
-		const maxFuel = this.swap?.setup.get('.car', '0,4'); // ALIGNED MAX FUEL TO CarDataCar
+		const maxFuel = this.swap?.setup.get('.car', '1.6'); // ALIGNED MAX FUEL TO CarDataCar
 		const patchRes = patchCarSetupLimits(decoded, this.modding_info, maxFuel);
 		this.patch_info.changed_count += patchRes.changes;
 

@@ -12,6 +12,15 @@
 				"<node_internals>/**"
 			],
 			"program": "${workspaceFolder}\\main.mjs"
+		},
+		{
+			"type": "node",
+			"request": "launch",
+			"name": "build-release",
+			"skipFiles": [
+				"<node_internals>/**"
+			],
+			"program": "${workspaceFolder}\\build_release.mjs"
 		}
 	]
 }

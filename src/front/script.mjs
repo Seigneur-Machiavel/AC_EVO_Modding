@@ -81,7 +81,8 @@ function handleServerMessage(/** @type {any} */ msg) {
 		AEROS = new AeroLib(msg.AERO_LIB.store);
 		MECHS_TYRES = msg.MECHS_TYRES || {};
 		if (msg.SWAPS) SWAPS = new ModSwapsLib(msg.SWAPS); // @ts-ignore
-		document.getElementById('path-input').value = ACE_PATH;
+		document.getElementById('path-input').value = ACE_PATH; // @ts-ignore
+		document.getElementById('title-app-version').textContent = msg.VERSION;
 		renderCarList();
 		return;
 	}
@@ -479,9 +480,12 @@ function buildTyrePickerItem(carId = 'toto', mech = 'toto', mod = 'toto', cat = 
 // AERO
 
 function getAeroValue(carId = 'toto', mech = 'toto') {
-    return DRAFTS.get(carId, mech)?.aero
-        ?? SWAPS.get(carId, mech)?.aero
-        ?? 'stock';
+	let aero = 'stock';
+	const draft = DRAFTS.get(carId, mech);
+	const swap = SWAPS.get(carId, mech);
+	if (aero === 'stock' && draft?.aero) aero = draft?.aero;
+	if (aero === 'stock' && swap?.aero) aero = swap?.aero;
+	return aero;
 }
 
 function setDraftAero(carId = 'toto', mech = 'toto', value = 'stock') {
@@ -663,7 +667,7 @@ function buildModSwapFromDraft(carId = 'toto', mech = 'toto', draft = new ModSwa
 	for (const mod in base.tyres) modSwap.tyres[mod] = base.tyres[mod];
 	for (const mod in draft.tyres) modSwap.tyres[mod] = draft.tyres[mod];
 	
-	modSwap.aero = draft.aero || base.aero;
+	modSwap.aero = draft.aero !== 'stock' ? draft.aero : base.aero;
 
 	return modSwap;
 }

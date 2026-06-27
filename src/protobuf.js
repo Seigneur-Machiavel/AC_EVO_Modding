@@ -433,7 +433,7 @@ export function setOrAppend(decoded, target, kind, value) {
         const next = [];
         for (const current of currents) {
             const nodes = current.filter(n => n.field === fNum);
-			console.log(`fNum:${fNum} found:${current.filter(n => n.field === fNum).length}`);
+			//console.log(`fNum:${fNum} found:${current.filter(n => n.field === fNum).length}`);
             if (!nodes.length) { // node missing, create it in this current
                 const tag = (BigInt(fNum) << 3n) | BigInt(WIRE_LEN);
                 const node = { field: fNum, wireType: WIRE_LEN, tagBytes: encodeVarint(tag),
@@ -456,7 +456,7 @@ export function setOrAppend(decoded, target, kind, value) {
         currents = next;
     }
 	
-	console.log(`currents after nav: ${currents.length}`);
+	//console.log(`currents after nav: ${currents.length}`);
 
     const leafField = fieldPath.at(-1);
     for (const current of currents) {

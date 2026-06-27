@@ -10,7 +10,7 @@
 
 import path from "path";
 import { MainPaths } from './helpers.mjs';
-import { ModParts, ModData, AeroLib } from './classes.mjs';
+import { ModParts, ModData, AeroLib, PART_KEYS } from './classes.mjs';
 import { extract_all_tyres } from './tyres-extractor.mjs';
 import { Logger, FileSystem, resolveFileIdentity } from './helpers.mjs';
 import { decode, encode, toRows } from "./protobuf.js";
@@ -35,7 +35,7 @@ function extractMechList(car_dir = 'ks_porsche_992_gt3_rs') {
 }
 
 // DEV
-const DEV_MODE = false; // MORE LOGS & STOP THE LOOP AFTER THE FIRST CAR | Prod: false.
+const DEV_MODE = true; // MORE LOGS & STOP THE LOOP AFTER THE FIRST CAR | Prod: false.
 const DEV_SCAN_ALL_CARS = true; // If falsy, only: 'ks_abarth_695_biposto', 'ks_mini_jcs_1990'
 const APPLY_LABEL_ANTI_REPETITION = false;
 /** Only trigger on this file (CarDataCar | CarSetup | CarSetupLimits | CompatibleTyres) */
@@ -44,9 +44,10 @@ const fileIdentityTrigger = 'CarDataCar';
  * ex: ['Mini John Cooper S', '360'] */ // @ts-ignore
 const valTriggers = [];
 // NOTES (Abarth TRIGGERS): ESP='27', ABS='0.4000000059604645', EDL=500, TC: 150
-const fieldTrigger = null; // ex: '4.2.2';
+const fieldTrigger = '12.10'; // ex: '4.2.2';
 const pathTrigger = null; // '6,'; // (null | string) ex: '0,0,'; '13,6'
-
+//const list = DEV_MODE && !DEV_SCAN_ALL_CARS ? ['ks_abarth_695_biposto', 'ks_mini_jcs_1990'] : CARS_LIST;
+const list = ['ks_dallara_stradale_coupe']
 
 // NOTES:
 // carsetuplimits -> path > x,x,0= Step | x,x,0= Min | x,x,0= Min
@@ -91,17 +92,13 @@ class DeepCloner {
 			const decoded = decode(FileSystem.readFileSync(path.join(p, f)));
 			const rows = toRows(decoded.fields);
 			const fileIdentity = resolveFileIdentity(f);
-			if (fileIdentity === 'CarDataCar') this.#storeAssociatedCarDataCar(rows);
+			if (fileIdentity === 'CarDataCar') this.#extractCarDataCarInfo(rows);
 			if (fileIdentity === 'CompatibleTyres') this.#storeCompatibleTyres(rows);
 			if (fileIdentity === 'CarSetup' && this.carSetupFiles['.carsetup'] !== f) continue;
 			if (fileIdentity === 'CarSetupLimits' && this.carSetupFiles['.carsetuplimits'] !== f) continue;
 			
 			const endFile = `.${f.split('.').pop()}`;
 			if (DEV_MODE) this.#logDevData(rows, endFile, fileIdentity);
-
-			for (const endFile in this.mod_parts) // STORE PARTS
-				if (!f.endsWith(endFile)) continue;
-				else this.mod_parts.set(endFile, `content\\${path.join(p, f).split('\\content\\')[1]}`);
 
 			for (const row of rows) // STORE DATAS
 				if (!this.mod_data.isRequired(endFile, row.label)) continue;
@@ -114,22 +111,45 @@ class DeepCloner {
 		}
 	}
 	
-	#storeAssociatedCarDataCar(/** @type {any} */ rows) {
+	#extractCarDataCarInfo(/** @type {any} */ rows) {
 		/** @type {{front: { category: string, tyre: string} | null, rear: { category: string, tyre: string} | null}} */
 		let tyreSet = { front: null, rear: null };
 		for (const row of rows) {
 			const value = row.value;
 			if (typeof value !== 'string') continue;
-			if (!value.includes('\\')) continue; // path only
 
 			const fileName = row.value.split('\\').pop();
 			if (!fileName) continue;
 
+			const cleanPath = value.toLowerCase();
 			const fileExt = `.${row.value.split('.').pop()}`;
 			const fName = fileName.toLowerCase();
 			if (fileExt !== '.tyre' && this.carSetupFiles[fileExt] === null)
 				this.carSetupFiles[fileExt] = fName; // store part path
 
+			 // STORE PARTS: DETECT BY LABEL IS MORE CONSISTENT
+			if (row.label === '16') this.carSetupFiles['.carsetuplimits'] = fName;
+			if (row.label === '19') this.carSetupFiles['.carsetup'] = fName; // .carsetup
+
+			if (row.label === '20') this.mod_parts.set('.carengine', cleanPath);
+			if (row.label === '22') this.mod_parts.set('.drivetrain', cleanPath);
+			if (row.label === '24') this.mod_parts.set('.gearbox', cleanPath);
+			if (row.label === '26') this.mod_parts.set('.clutch', cleanPath);
+			if (row.label === '27') this.mod_parts.set('.brakesystem', cleanPath);
+			if (row.label === '2.20') this.mod_parts.set('front.coilover', cleanPath);
+			if (row.label === '2.21') this.mod_parts.set('rear.coilover', cleanPath);
+			if (row.label === '2.22') this.mod_parts.set('front.suspension', cleanPath);
+			if (row.label === '2.23') this.mod_parts.set('rear.suspension', cleanPath);
+
+			// DEV LOOP // WHAT IS "25.24" ?? ks_dallara_stradale_coupe
+			for (const part of PART_KEYS) {
+				if (this.car_id !== 'ks_mini_jcs_1990') continue;
+				if (!fName.endsWith(part)) continue;
+				console.log(`${part} -> ${row.label}`)
+				console.log(`-- ${cleanPath}`);
+			}
+
+			if (!value.includes('\\')) continue; // path only
 			if (!row.label.startsWith('12.')) continue; // only aero
 			if (fileExt !== '.curve' && fileExt !== '.wing') this.aero_parts = null; // Unable to manage this aero!
 			if (!this.aero_parts) continue;
@@ -223,7 +243,6 @@ if (!DEV_MODE) // CLEAR TEMPLATES DIRS (NOT FILES!)
 		FileSystem.removeDirIfExist(path.join(MAIN_PATHS.TEMPLATES, dir));
 
 let total_mech_count = 0;
-const list = DEV_MODE && !DEV_SCAN_ALL_CARS ? ['ks_abarth_695_biposto', 'ks_mini_jcs_1990'] : CARS_LIST;
 for (const car_dir of list) {
 	const mech_list = extractMechList(car_dir);
 	const car_dir_path = 	path.join(CARS_DIR, car_dir);

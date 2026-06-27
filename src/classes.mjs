@@ -71,7 +71,7 @@ export class ModSwap { // @ts-ignore
 		for (const key in swap.parts) this.parts[key] = swap.parts[key];
 		for (const key in swap.tyres) this.tyres[key] = swap.tyres[key];
 		if (swap.setup) this.setup = ModData.from(swap.setup);
-		this.aero = swap.aero || 'stock';
+		if (swap.aero) this.aero = swap.aero;
 	}
 
 	/** @param {string} part The part name @param {string} car_id ex: ks_mini_jcs_1990 @param {string} [mech] default: 'mech_1' */
@@ -147,7 +147,7 @@ export class TyresLib { // TYRES
 	}
 }
 
-export class AeroLib { // row.label trigger ('12.10' = path | '12.3.2' = name)
+export class AeroLib {
 	store;
 	
 	/** Aero pathes by car (no mech) | key: car_id, value: path[]

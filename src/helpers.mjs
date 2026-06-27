@@ -1,8 +1,21 @@
 // @ts-check
 import fs from "fs";
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { toRows, decode, encode, appendVarint, setOrAppend, appendMessage, deleteByLabel } from './protobuf.js';
+
+export class Timer {
+	/** @type {string[]} */ timings = [];
+	start = performance.now();
+
+	mark(marker = 'toto') {
+		const n = performance.now();
+		const m = `[${marker}]`;
+		this.timings.push(`${m.padEnd(30, ' ')} ${(n - this.start).toFixed(3)}ms`);
+		this.start = n;
+	};
+} 
 
 export class MainPaths {
 	TEMPLATES;
@@ -18,10 +31,18 @@ export class MainPaths {
 		let ROOT = path.dirname(fileURLToPath(import.meta.url));
 		if (!ROOT.endsWith('AC_EVO_Modding')) ROOT = path.resolve((ROOT), '..');
 		
-		const ACE_MODS 	= ACE_MODS_PATH && fs.existsSync(ACE_MODS_PATH) ? ACE_MODS_PATH : null;
+		let ACE_MODS 	= ACE_MODS_PATH && fs.existsSync(ACE_MODS_PATH) ? ACE_MODS_PATH : null; 
+		if (!ACE_MODS) { // try searching the dir
+			const findACE = path.join(os.homedir(), 'Saved Games', 'ACE');
+			const findACE_mods = path.join(os.homedir(), 'Saved Games', 'ACE', 'mods');
+			if (fs.existsSync(findACE) && !fs.existsSync(findACE_mods)) // ACE found but no "mods"...
+				FileSystem.createDirIfNot(findACE_mods); // create missing "mods" dir
+			ACE_MODS = findACE_mods;
+		}
+
 		this.TEMPLATES 	= path.join(ROOT, 'templates');
 		this.ACE_MODS 	= ACE_MODS;
-		this.OUTPUT 	= ACE_MODS ? path.join(ACE_MODS, 'content\\cars') : path.join(ROOT, 'outputs');
+		this.OUTPUT 	= ACE_MODS ? path.join(ACE_MODS, 'content', 'cars') : path.join(ROOT, 'outputs');
 		this.INPUT 		= path.join(ROOT, 'inputs');
 		this.FRONT		= path.join(ROOT, 'src', 'front');
 		this.ROOT 		= ROOT;
@@ -35,6 +56,7 @@ export class FileSystem {
 	static readFileSync(p = 'C:') { return fs.readFileSync(p); }
 	static createDirIfNot(p = 'C:') { if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true }); }
 	static removeDirIfExist(p = 'C:') { if (fs.existsSync(p)) fs.rmSync(p, { recursive: true }); }
+	static fastCopy(src = '', dest = '') { fs.copyFileSync(src, dest); }
 
 	/** List files (not dirs) in a folder, sorted. Returns [] if dir is null/missing. */
 	static listFiles(p = 'C:') {
@@ -238,9 +260,9 @@ export function patchCarSetupLimits(decoded, electronic_update_info, maxFuel) {
 	let changes = 0; if (maxFuel) changes++;
 	if (maxFuel) setOrAppend(decoded, '7.1.3', 'float', maxFuel); // ALIGN VALUES
 
-	setOrAppend(decoded, '1.2.1', 'float', 1); 		// STEER RATIO Step
-	setOrAppend(decoded, '1.2.2', 'float', 10); 	// STEER RATIO Min
-	setOrAppend(decoded, '1.2.3', 'float', 40); 	// FRONT CAMBER Max
+	setOrAppend(decoded, '1.2.1', 'float', .1); 	// STEER RATIO Step
+	setOrAppend(decoded, '1.2.2', 'float', -36); 	// STEER RATIO Min
+	setOrAppend(decoded, '1.2.3', 'float', 36); 	// STEER RATIO Max
 
 	setOrAppend(decoded, '1.3.1.1', 'float', 1); 	// FRONT BIAS Step
 	setOrAppend(decoded, '1.3.1.2', 'float', 0); 	// FRONT BIAS Min
@@ -250,8 +272,8 @@ export function patchCarSetupLimits(decoded, electronic_update_info, maxFuel) {
 	setOrAppend(decoded, '1.3.2.2', 'float', 0); 	// TORQUE MULTIPLIER Min
 	setOrAppend(decoded, '1.3.2.3', 'float', 100); 	// TORQUE MULTIPLIER Max
 
-	setOrAppend(decoded, '4.2.1', 'float', 0.1); 	// CAMBER Step
-	setOrAppend(decoded, '4.2.2', 'float', -4); 	// CAMBER Min
+	setOrAppend(decoded, '4.2.1', 'float', .1); 	// CAMBER Step
+	setOrAppend(decoded, '4.2.2', 'float', -10); 	// CAMBER Min
 	setOrAppend(decoded, '4.2.3', 'float', 2); 		// CAMBER Max
 	changes += 12;
 

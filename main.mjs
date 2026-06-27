@@ -4,7 +4,7 @@ import path from "path";
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import { CarCreator, Patch_Info } from "./src/car-creator.mjs";
-import { MainPaths, FileSystem, Logger, MIME_TYPES } from './src/helpers.mjs';
+import { MainPaths, FileSystem, Logger, MIME_TYPES, Timer } from './src/helpers.mjs';
 import { ModSwap, ModParts, ModData, ModSwapsLib, TyresLib, AeroLib } from './src/classes.mjs';
 
 process.on("exit", () => logger.save());
@@ -30,7 +30,9 @@ process.on("exit", () => logger.save());
 /** @type {Record<string, Patch_Info>} */
 const patch_infos = {};
 const logger = new Logger();
+const TIMING_LOGS = false; // DEV
 const PORT = 4639;
+let FRESH_START = true; // Flag Indicate to clear mods\content\cars at startup
 /** @type {any} */				const USER_PREFERENCES = {};
 /** @type {SetOfMechTyres} */ 	let MECHS_TYRES = {};
 /** @type {SetOfModSetups} */ 	const SETUPS = {};
@@ -39,7 +41,9 @@ const PORT = 4639;
 /** @type {TyresLib} */ 		let TYRES_LIB;
 /** @type {AeroLib} */ 			let AERO_LIB;
 /** @type {ModSwapsLib} */ 	let SWAPS = new ModSwapsLib();
-let MAIN_PATHS = new MainPaths();
+
+let MAIN_PATHS = new MainPaths(); // @ts-ignore
+let VERSION = JSON.parse(FileSystem.readFileSync(path.join(MAIN_PATHS.ROOT, 'package.json'))).version;
 
 // NOTES FOR DEV
 // In .actor
@@ -105,17 +109,23 @@ function init() { // @ts-ignore
 	try { FileSystem.readFileSync(path.join(MAIN_PATHS.ACE_MODS, 'uiresources', 'branding', 'oem', 'pink_mods', 'logo.texture')); }
 	catch { FileSystem.copyDir('pink_mods', path.join(MAIN_PATHS.ACE_MODS, 'uiresources', 'branding', 'oem', 'pink_mods')); };
 
-	//FileSystem.removeDirIfExist(MAIN_PATHS.OUTPUT); 	// only if user haven't set ACE/mods
-	//FileSystem.createDirIfNot(MAIN_PATHS.OUTPUT);		// only if user haven't set ACE/mods
 	FileSystem.createDirIfNot(MAIN_PATHS.INPUT);
+	if (FRESH_START) { FileSystem.removeDirIfExist(MAIN_PATHS.OUTPUT); FRESH_START = false };
+	FileSystem.createDirIfNot(MAIN_PATHS.OUTPUT);
 	clone_all_missing_cars();
+
 	return true;
 }
-
-function clone_all_missing_cars() {
+async function clone_all_missing_cars() {
+	const start = Date.now();
 	const EXISTING_MOD_CARS = FileSystem.listDirs(MAIN_PATHS.OUTPUT);
-	for (const m_id of FileSystem.listDirs(MAIN_PATHS.TEMPLATES))
+	const TEMPLATES_CARS = FileSystem.listDirs(MAIN_PATHS.TEMPLATES);
+	for (const m_id of TEMPLATES_CARS) {
 		if (!EXISTING_MOD_CARS.includes(m_id)) clone_car(m_id);
+		await new Promise(res => setTimeout(res, 1)); // micro pause to breath and serve front
+	}
+	
+	console.info(`[clone_all_missing_cars] ${(Date.now() - start)}ms`);
 }
 
 /** @param {ModSwap} [swap] Optionnal swap */
@@ -124,16 +134,20 @@ function clone_car(m_id = 'ks_toyota_supra_mkiv_mod_mech_1', swap) {
 	const mech = m_id.split('_mod_')[1];
 	const s = swap || SWAPS.get(o_id, mech);
 	const carCreator = new CarCreator(MAIN_PATHS, o_id, m_id, mech, TYRES_LIB, AERO_LIB, MECHS_TYRES, MECHS, s, logger);
-	carCreator.prepareTyresCorrections();
-	carCreator.prepareSoundCorrections();
-	carCreator.prepareSetupCorrections();
-	carCreator.prepareCorrections(path.join(MAIN_PATHS.TEMPLATES, m_id));
-	carCreator.processDir(path.join(MAIN_PATHS.TEMPLATES, m_id));
-	carCreator.createModdedCarContent();
+	const timer = new Timer();
+	carCreator.prepareArch(path.join(MAIN_PATHS.TEMPLATES, m_id)); timer.mark('prepareArch');
+	carCreator.prepareTyresCorrections(); timer.mark('prepareTyresCorrections');
+	carCreator.prepareSoundCorrections(); timer.mark('prepareSoundCorrections');
+	carCreator.prepareSetupCorrections(); timer.mark('prepareSetupCorrections');
+	carCreator.prepareModFilesCorrections(); timer.mark('prepareModFilesCorrections');
+	carCreator.preparePartsCorrections(); timer.mark('preparePartsCorrections');
+	carCreator.processArch(); timer.mark('processArch');
+	carCreator.createModdedCarContent(); timer.mark('createModdedCarContent');
 	patch_infos[m_id] = carCreator.patch_info;
 
-	// LOOP AGAIN TO LOG CHANGES COUNT
-	for (const id in patch_infos) logger.log(`${id} => ${patch_infos[id].changed_count}/${patch_infos[id].unchanged_count} changes in ${patch_infos[id].files_count} files.`);
+	logger.log(`${m_id} => ${carCreator.patch_info.changed_count}/${carCreator.patch_info.unchanged_count} changes in ${carCreator.patch_info.files_count} files.`);
+	if (!TIMING_LOGS) return;
+	for (const entry of timer.timings) console.info(entry);
 }
 
 // SERVER
@@ -181,7 +195,7 @@ function handleSwapUpdate(payload) {
 
 if (MAIN_PATHS.ACE_MODS) init(); // INIT FIRST > LOADING PREFERENCES, MECHS, SWAPS.
 const wss = new WebSocketServer({ server });
-const initMessage = () => { return { type: 'init', ace_mods_path: MAIN_PATHS.ACE_MODS, MECHS, SETUPS, SWAPS, TYRES, MECHS_TYRES, AERO_LIB } }
+const initMessage = () => { return { type: 'init', VERSION, ace_mods_path: MAIN_PATHS.ACE_MODS, MECHS, SETUPS, SWAPS, TYRES, MECHS_TYRES, AERO_LIB } }
 wss.on('connection', (socket) => {
 	console.log('[ws] client connected');
 
