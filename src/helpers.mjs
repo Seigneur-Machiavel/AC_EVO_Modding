@@ -121,13 +121,14 @@ export const MIME_TYPES = {
 };
 
 const FILE_IDENTITIES = {
+	'.actor': 'Actor',
 	'.car': 'CarDataCar',
 	'.carsetup': 'CarSetup',
 	'.carsetuplimits': 'CarSetupLimits',
 	'.compatibletyres': 'CompatibleTyres',
 	'.carmechanicalpreset': 'CarMechanicalPreset'
 };
-/** @returns {'CarDataCar' | 'CarSetup' | 'CarSetupLimits' | 'CompatibleTyres' | undefined} */
+/** @returns {'Actor' | 'CarDataCar' | 'CarSetup' | 'CarSetupLimits' | 'CompatibleTyres' | undefined} */
 export function resolveFileIdentity(f = '...cardata.car') { // @ts-ignore
 	for (const key in FILE_IDENTITIES) if (f.endsWith(key)) return FILE_IDENTITIES[key];
 }
@@ -275,7 +276,11 @@ export function patchCarSetupLimits(decoded, electronic_update_info, maxFuel) {
 	setOrAppend(decoded, '4.2.1', 'float', .1); 	// CAMBER Step
 	setOrAppend(decoded, '4.2.2', 'float', -10); 	// CAMBER Min
 	setOrAppend(decoded, '4.2.3', 'float', 2); 		// CAMBER Max
-	changes += 12;
+
+	setOrAppend(decoded, '5.7.1', 'float', 1); 		// TURBO BOOST LV Step
+	setOrAppend(decoded, '5.7.2', 'float', 0); 		// TURBO BOOST LV Min
+	setOrAppend(decoded, '5.7.3', 'float', 100); 	// TURBO BOOST LV Max
+	changes += 15; // to update when you add unlocks (+3 in most cases)
 
 	const { HAS_REBUILD_TC, HAS_REBUILD_ABS, HAS_REBUILD_ESP } = electronic_update_info;
 	if (HAS_REBUILD_TC) { // TC_1
@@ -302,38 +307,48 @@ export function patchCarSetupLimits(decoded, electronic_update_info, maxFuel) {
 	return { decoded: decode(encode(decoded.fields)), changes };
 }
 
+class lastCarSetupLimitRow {
+	step = 0;
+	min = 0;
+	max = 0;
+	field = 1;
+	/** @type {number[] | undefined} */ path;
+
+	reset() { this.step = 0; this.min = 0; this.max = 0; this.field = 1; this.path = undefined; }
+	get isValid() { return this.path && this.field < 4 && this.step && this.max !== this.min; }
+}
+
 /** @param {any} decoded */
 export function enableCarSetupLimits(decoded) {
 	// ENABLE ANY SETUP_LIMIT THAT HAVE VALID 'STEP & MIN & MAX'
 	// Pass 1: collect paths to patch
-	let data_batch = { step: 0, min: 0, max: 0 };
-	let lastPath, lastFieldPath;
-	let lastField = 1;
+	const last = new lastCarSetupLimitRow();
 	let changes = 0;
 	const toBool = []; // pending boolean updates
-	for (const row of toRows(decoded.fields)) {
-		if (lastPath && lastField < 4 && data_batch.step && data_batch.max !== data_batch.min)
-			toBool.push({ path: [...lastPath], fieldPath: [lastFieldPath] });
+	const rows = toRows(decoded.fields);
+	for (let i = 0; i < rows.length; i++) { // using index for easier debug
+		const row = rows[i];
+		if (row.field > 4) continue;
+		if (row.field === 4 && Number(row.value))// ALREADY ENABLED
+			{ last.reset(); continue };
 
-		if (lastField <= row.field) {
-			lastPath = [...row.path];
-			lastFieldPath = [...row.label.split('.')];
-			data_batch = { step: 0, min: 0, max: 0 };
-		}
+		if (last.isValid) toBool.push(last.path);
 
-		if (row.field === 1) data_batch.step = Number(row.value);
-		if (row.field === 2) data_batch.min  = Number(row.value);
-		if (row.field === 3) data_batch.max  = Number(row.value);
-		lastField = row.field;
-		lastFieldPath = row.label.split('.');
+		if (last.field >= row.field)
+			{ last.reset(); last.path = [...row.path] };
+
+		if (row.field === 1) last.step = Number(row.value);
+		if (row.field === 2) last.min  = Number(row.value);
+		if (row.field === 3) last.max  = Number(row.value);
+		last.field = row.field;
 	}
 
 	// Don't forget the last batch
-	if (lastPath && lastField < 4 && data_batch.step && data_batch.max !== data_batch.min)
-		toBool.push({ path: [...lastPath], fieldPath: [lastFieldPath] });
+	if (last.isValid) toBool.push(last.path);
 
 	if (toBool.length) { // Pass 2: apply patches
-		for (const { path, fieldPath } of toBool) {
+		for (const path of toBool) {
+			if (!path) throw new Error('Fatal error!');
 			let current = decoded.fields;
 			for (const index of path.slice(0, -1)) current = current[index].message; // descend through nested submessages
 			if (!appendVarint(current, 4, 1)) throw new Error('UNABLE TO PATCH!!');

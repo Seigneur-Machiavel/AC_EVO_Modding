@@ -19,7 +19,6 @@ const TYRES = extract_all_tyres();
 const MAIN_PATHS = new MainPaths();
 const CARS_DIR = 'D:\\_Projects\\ACEvo.Package\\content.extracted\\content\\cars';
 const CARS_LIST = FileSystem.listDirs(CARS_DIR).filter(d => d.startsWith('ks_'));
-console.log(`${CARS_LIST.length} cars found`);
 
 function extractMechList(car_dir = 'ks_porsche_992_gt3_rs') {
 	/** @type {string[]} */
@@ -36,32 +35,25 @@ function extractMechList(car_dir = 'ks_porsche_992_gt3_rs') {
 
 // DEV
 const DEV_MODE = true; // MORE LOGS & STOP THE LOOP AFTER THE FIRST CAR | Prod: false.
-const DEV_SCAN_ALL_CARS = true; // If falsy, only: 'ks_abarth_695_biposto', 'ks_mini_jcs_1990'
+const LOG_PARTS = false; // LOG ANY PARTS THAT ARE IN "PART_KEYS"
+const DEV_SCAN_ALL_CARS = false; // If falsy, only: 'ks_abarth_695_biposto', 'ks_mini_jcs_1990'
 const APPLY_LABEL_ANTI_REPETITION = false;
-/** Only trigger on this file (CarDataCar | CarSetup | CarSetupLimits | CompatibleTyres) */
-const fileIdentityTrigger = 'CarDataCar';
+/** Only trigger on this file (Actor | CarDataCar | CarSetup | CarSetupLimits | CompatibleTyres) */
+const fileIdentityTrigger = 'CarSetupLimits';
 /** Full file values log. (one shot) | leave empty for no log.
  * ex: ['Mini John Cooper S', '360'] */ // @ts-ignore
-const valTriggers = [];
+const valTriggers = ['230'];
 // NOTES (Abarth TRIGGERS): ESP='27', ABS='0.4000000059604645', EDL=500, TC: 150
-const fieldTrigger = '12.10'; // ex: '4.2.2';
+const fieldTrigger = null; // ex: '4.2.2'; -> work on 12.10 (12.)
 const pathTrigger = null; // '6,'; // (null | string) ex: '0,0,'; '13,6'
 //const list = DEV_MODE && !DEV_SCAN_ALL_CARS ? ['ks_abarth_695_biposto', 'ks_mini_jcs_1990'] : CARS_LIST;
-const list = ['ks_dallara_stradale_coupe']
+const list = ['ks_mini_jcs_1990']; // DEV CUSTOM LIST
+console.log(`${CARS_LIST.length} cars found | ${list.length} cars to scan`);
 
 // NOTES:
 // carsetuplimits -> path > x,x,0= Step | x,x,0= Min | x,x,0= Min
 // CompatibleTyres :
 // -> 2.1=modval? | 2.2=front_mod_1 | 2.3=read_mod_1
-
-/*
-
-> path: 1,0          | label: 2.1          | kind: varint   | value: 91
-> path: 1,1          | label: 2.2          | kind: string   | value: content\cars\common_phsx\tyres\supercar\supercar_215_35_18.tyre
-> path: 1,2          | label: 2.3          | kind: string   | value: content\cars\common_phsx\tyres\supercar\supercar_215_35_18.tyre
-> path: 2,0          | label: 2.1          | kind: varint   | value: 304
-> path: 2,1          | label: 2.2          | kind: string   | value: content\cars\common_phsx\tyres\road\road_215_35_18.tyre
-> path: 2,2          | label: 2.3          | kind: string   | value: content\cars\common_phsx\tyres\road\road_215_35_18.tyre*/
 
 class DeepCloner {
 	/** @type {Record<string, string | null>} */
@@ -98,7 +90,7 @@ class DeepCloner {
 			if (fileIdentity === 'CarSetupLimits' && this.carSetupFiles['.carsetuplimits'] !== f) continue;
 			
 			const endFile = `.${f.split('.').pop()}`;
-			if (DEV_MODE) this.#logDevData(rows, endFile, fileIdentity);
+			if (DEV_MODE) this.logDevData(rows, endFile, fileIdentity);
 
 			for (const row of rows) // STORE DATAS
 				if (!this.mod_data.isRequired(endFile, row.label)) continue;
@@ -142,7 +134,7 @@ class DeepCloner {
 			if (row.label === '2.23') this.mod_parts.set('rear.suspension', cleanPath);
 
 			// DEV LOOP // WHAT IS "25.24" ?? ks_dallara_stradale_coupe
-			for (const part of PART_KEYS) {
+			if (LOG_PARTS) for (const part of PART_KEYS) {
 				if (this.car_id !== 'ks_mini_jcs_1990') continue;
 				if (!fName.endsWith(part)) continue;
 				console.log(`${part} -> ${row.label}`)
@@ -183,7 +175,7 @@ class DeepCloner {
 		}
 	}
 	#loggedLabels = new Set(); // DEV VAR
-	#logDevData(/** @type {any} */ rows, endFile = '.car', fileIdentity = 'unknown') { // DEV METHOD
+	logDevData(/** @type {any} */ rows, endFile = '.car', fileIdentity = 'unknown') { // DEV METHOD
 		this.#loggedLabels = new Set();
 		for (const row of rows) {
 			if (fileIdentity !== fileIdentityTrigger) continue; // CONTROL VALUES FOR SPECIFIC FILE OPNLY
@@ -260,13 +252,18 @@ for (const car_dir of list) {
 
 		// COPY FILES WITH RENAMING
 		const mech = mech_list[0];
+		const deepCloner = new DeepCloner(car_dir, mech);
 		const template_path = 			path.join(MAIN_PATHS.TEMPLATES, `${car_dir}_mod_${mech}`);
 		const template_data_path = 		path.join(template_path, 'data');
 		const template_setup_path = 	path.join(template_data_path, 'setup');
 		const template_presets_path =	path.join(template_path, 'presets');
 		if (!DEV_MODE) FileSystem.copyFile(car_dir_files[0], car_dir_path, template_path, `_mod_${mech}`);
+		else {
+			const actorPath = path.join(car_dir_path, car_dir_files[0]);
+			const decoded = decode(FileSystem.readFileSync(actorPath));
+			deepCloner.logDevData(toRows(decoded.fields), '.actor', 'Actor');
+		}
 
-		const deepCloner = new DeepCloner(car_dir, mech);
 		deepCloner.deepCopy(data_files, car_data_path, template_data_path); 			// first DATA
 		deepCloner.deepCopy(setup_files, car_setup_path, template_setup_path);			// then  SETUP
 		deepCloner.deepCopy(presets_files, car_presets_path, template_presets_path);	// then  PRESETS

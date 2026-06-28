@@ -148,11 +148,12 @@ export class CarCreator {
 			setTyreCorrection(mechTyres[key], this.swap.tyres[key], 'rear');
 		}
 	}
-	prepareSoundCorrections() {
+	prepareSoundCorrections() { // Here we patch based path match for a predictible result, simple and efficient.
 		const { car_id } = this.swap?.getPart(".carengine") || {};
 		if (!car_id) return; // no engine swap
 
 		const c1 = new Correction(`event:/evo_cars/${car_id}/engine_int`, '.actor');
+
 		c1.rowValueMatch = `event:/evo_cars/${this.o_id}/engine_int`;
 		this.corrections.push(c1);
 

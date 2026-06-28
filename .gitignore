@@ -8,6 +8,7 @@ videos
 neutralino
 build/launcher-config.json
 build_release.mjs
+manifest.json
 
 user_preferences.json
 _user_swaps.json
